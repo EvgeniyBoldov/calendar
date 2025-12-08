@@ -69,7 +69,9 @@ export function useSync() {
           }, {})
         };
         const store = useEngineerStore.getState();
-        store.setEngineers([...store.engineers, transformed]);
+        if (!store.engineers.find(e => e.id === data.id)) {
+          store.setEngineers([...store.engineers, transformed]);
+        }
         break;
       }
       case 'engineer_updated': {
@@ -101,7 +103,9 @@ export function useSync() {
       // Regions
       case 'region_created': {
         const store = useDataCenterStore.getState();
-        store.setRegions([...store.regions, data]);
+        if (!store.regions.find(r => r.id === data.id)) {
+          store.setRegions([...store.regions, data]);
+        }
         break;
       }
       case 'region_updated': {
@@ -118,7 +122,9 @@ export function useSync() {
       // Data Centers
       case 'datacenter_created': {
         const store = useDataCenterStore.getState();
-        store.setDataCenters([...store.dataCenters, data]);
+        if (!store.dataCenters.find(d => d.id === data.id)) {
+          store.setDataCenters([...store.dataCenters, data]);
+        }
         break;
       }
       case 'datacenter_updated': {

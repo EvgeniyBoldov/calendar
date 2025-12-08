@@ -9,13 +9,15 @@
 """
 
 from datetime import date, timedelta
+from math import ceil
 from collections import defaultdict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from ..models import (
     Work, WorkChunk, Engineer, TimeSlot, DataCenter,
-    PlanningSession, PlanningStrategy, PlanningSessionStatus
+    PlanningSession, PlanningStrategy, PlanningSessionStatus,
+    DistanceMatrix
 )
 from ..models.work import ChunkStatus, WorkStatus, WorkType, Priority
 
@@ -55,7 +57,7 @@ class BulkSchedulingService:
         """Получить назначенные чанки инженера за период."""
         result = await self.db.execute(
             select(WorkChunk)
-            .options(selectinload(WorkChunk.tasks))
+            .options(selectinload(WorkChunk.tasks), selectinload(WorkChunk.work))
             .where(
                 WorkChunk.assigned_engineer_id == engineer_id,
                 WorkChunk.assigned_date >= start_date,
@@ -127,7 +129,21 @@ class BulkSchedulingService:
                 used += assignment["duration_hours"]
         
         return used, total_available
-    
+
+    async def _load_context(self) -> tuple[dict[tuple[str, str], int], dict[str, str]]:
+        """Загрузить контекст: матрицу расстояний и регионы ДЦ."""
+        # Матрица расстояний
+        dist_res = await self.db.execute(select(DistanceMatrix))
+        dist_matrix = {}
+        for row in dist_res.scalars().all():
+            dist_matrix[(row.from_dc_id, row.to_dc_id)] = row.duration_minutes
+            
+        # Регионы ДЦ
+        dc_res = await self.db.execute(select(DataCenter))
+        dc_regions = {dc.id: dc.region_id for dc in dc_res.scalars().all()}
+        
+        return dist_matrix, dc_regions
+
     async def find_slot_for_chunk(
         self,
         chunk: WorkChunk,
@@ -135,11 +151,24 @@ class BulkSchedulingService:
         engineers: list[Engineer],
         existing_assignments: list[dict],
         strategy: PlanningStrategy,
-        preferred_engineer_id: str | None = None
+        preferred_engineer_id: str | None = None,
+        dist_matrix: dict[tuple[str, str], int] = None,
+        dc_regions: dict[str, str] = None
     ) -> dict | None:
         """Найти слот для чанка по стратегии."""
+        dist_matrix = dist_matrix or {}
+        dc_regions = dc_regions or {}
         
         dc_id = chunk.data_center_id or work.data_center_id
+        
+        # Фильтрация инженеров по региону ДЦ
+        target_region_id = dc_regions.get(dc_id) if dc_id else None
+        if target_region_id:
+            engineers = [e for e in engineers if e.region_id == target_region_id]
+            
+        if not engineers:
+            return None
+            
         deadline = self.get_work_deadline(work)
         start_date = self.get_work_start_date(work) or date.today()
         end_date = deadline or (start_date + timedelta(days=30))
@@ -177,7 +206,7 @@ class BulkSchedulingService:
                 if not day_slots:
                     continue
                 
-                # Проверяем загрузку
+                # Проверяем загрузку (грубая проверка)
                 used, available = await self.calculate_engineer_load(
                     engineer.id, date_key, existing_assignments
                 )
@@ -185,20 +214,11 @@ class BulkSchedulingService:
                 if available - used < chunk.duration_hours:
                     continue
                 
-                # Проверяем конфликт ДЦ
-                engineer_dc_on_date = await self._get_engineer_dc_on_date(
-                    engineer.id, date_key, existing_assignments
-                )
-                
-                if engineer_dc_on_date and dc_id and engineer_dc_on_date != dc_id:
-                    # Нужен переезд - добавляем час
-                    if available - used < chunk.duration_hours + DC_TRAVEL_TIME_HOURS:
-                        continue
-                
-                # Находим свободное время
+                # Находим свободное время с учетом переездов
                 start_time = await self._find_free_start_time(
                     engineer.id, date_key, chunk.duration_hours, 
-                    day_slots, existing_assignments
+                    day_slots, existing_assignments,
+                    dc_id, dist_matrix
                 )
                 
                 if start_time is not None:
@@ -320,9 +340,21 @@ class BulkSchedulingService:
         date_key: str,
         duration: int,
         slots: list[dict],
-        existing_assignments: list[dict]
+        existing_assignments: list[dict],
+        target_dc_id: str | None = None,
+        dist_matrix: dict[tuple[str, str], int] = None
     ) -> int | None:
-        """Найти свободное время начала в слотах."""
+        """Найти свободное время начала в слотах с учетом переездов."""
+        dist_matrix = dist_matrix or {}
+        
+        def get_travel_hours(from_dc, to_dc):
+            if not from_dc or not to_dc or from_dc == to_dc:
+                return 0
+            minutes = dist_matrix.get((from_dc, to_dc))
+            if minutes is None:
+                # Fallback: пробуем обратное направление или дефолт 60 мин
+                minutes = dist_matrix.get((to_dc, from_dc), 60)
+            return ceil(minutes / 60)
         
         # Собираем все занятые интервалы
         occupied = []
@@ -335,9 +367,11 @@ class BulkSchedulingService:
         )
         for chunk in assigned:
             if chunk.assigned_start_time is not None:
+                dc = chunk.data_center_id or (chunk.work.data_center_id if chunk.work else None)
                 occupied.append({
                     "start": chunk.assigned_start_time,
-                    "end": chunk.assigned_start_time + chunk.duration_hours
+                    "end": chunk.assigned_start_time + chunk.duration_hours,
+                    "dc_id": dc
                 })
         
         # Из текущей сессии
@@ -345,7 +379,8 @@ class BulkSchedulingService:
             if assignment["engineer_id"] == engineer_id and assignment["date"] == date_key:
                 occupied.append({
                     "start": assignment["start_time"],
-                    "end": assignment["start_time"] + assignment["duration_hours"]
+                    "end": assignment["start_time"] + assignment["duration_hours"],
+                    "dc_id": assignment.get("dc_id")
                 })
         
         occupied.sort(key=lambda x: x["start"])
@@ -355,22 +390,54 @@ class BulkSchedulingService:
             current_time = slot["start"]
             slot_end = slot["end"]
             
+            # Если список занятых пуст - просто проверяем вместимость слота
+            if not occupied:
+                if current_time + duration <= slot_end:
+                    return current_time
+                continue
+                
+            # Проверяем промежутки между занятыми слотами и внутри рабочего слота
+            prev_occ = None
+            
             for occ in occupied:
+                # Если занятый слот закончился до начала рабочего слота - обновляем prev_occ и идем дальше
+                if occ["end"] <= slot["start"]:
+                    prev_occ = occ
+                    continue
+                    
+                # Если занятый слот начинается после конца рабочего слота - прерываем
                 if occ["start"] >= slot_end:
                     break
-                if occ["end"] <= current_time:
-                    continue
                 
-                # Проверяем промежуток до занятого
-                if current_time + duration <= occ["start"]:
-                    return current_time
+                # Потенциальное начало - либо текущее время, либо конец предыдущего занятого (+ переезд)
+                potential_start = max(current_time, slot["start"])
                 
+                # Учитываем переезд ОТ предыдущего (если он был)
+                if prev_occ:
+                    travel_from_prev = get_travel_hours(prev_occ["dc_id"], target_dc_id)
+                    potential_start = max(potential_start, prev_occ["end"] + travel_from_prev)
+                
+                # Проверяем, помещается ли чанк ДО текущего занятого occ (+ переезд К нему)
+                travel_to_next = get_travel_hours(target_dc_id, occ["dc_id"])
+                
+                if potential_start + duration + travel_to_next <= occ["start"]:
+                    # Дополнительно проверяем, что potential_start внутри слота
+                    if potential_start >= slot["start"] and potential_start + duration <= slot_end:
+                         return potential_start
+                
+                # Сдвигаем current_time за текущий занятый слот
                 current_time = max(current_time, occ["end"])
+                prev_occ = occ
             
-            # Проверяем остаток слота
-            if current_time + duration <= slot_end:
-                return current_time
-        
+            # Проверяем остаток слота после всех занятых
+            potential_start = max(current_time, slot["start"])
+            if prev_occ:
+                travel_from_prev = get_travel_hours(prev_occ["dc_id"], target_dc_id)
+                potential_start = max(potential_start, prev_occ["end"] + travel_from_prev)
+                
+            if potential_start + duration <= slot_end:
+                return potential_start
+                
         return None
     
     async def create_planning_session(
@@ -381,6 +448,9 @@ class BulkSchedulingService:
         """
         Создать сессию планирования и рассчитать распределение.
         """
+        # Загружаем контекст
+        dist_matrix, dc_regions = await self._load_context()
+        
         # Получаем все неназначенные чанки
         unassigned = await self.get_unassigned_chunks()
         
@@ -411,7 +481,8 @@ class BulkSchedulingService:
             preferred_engineer = work_engineer_map.get(work.id)
             
             slot = await self.find_slot_for_chunk(
-                chunk, work, engineers, assignments, strategy, preferred_engineer
+                chunk, work, engineers, assignments, strategy, preferred_engineer,
+                dist_matrix=dist_matrix, dc_regions=dc_regions
             )
             
             if slot:

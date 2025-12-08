@@ -176,6 +176,7 @@ export const useWorkStore = create<WorkState>((set, get) => ({
   
   syncChunkCreated: (chunk) => set((state) => {
     // Add to flat list
+    if (state.chunks.some(c => c.id === chunk.id)) return state;
     const chunks = [...state.chunks, chunk];
     // Add to work's chunk list
     const works = state.works.map(w => {
