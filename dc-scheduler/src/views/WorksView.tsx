@@ -1,352 +1,377 @@
 import React from 'react';
 import { useWorkStore } from '../stores/workStore';
 import { useDataCenterStore } from '../stores/dataCenterStore';
-import { Clock, FileText, Calendar, Plus, MapPin, Flag, Edit2, Trash2 } from 'lucide-react';
-import { GenericAddModal } from '../components/ui/GenericAddModal';
-import type { FieldConfig } from '../components/ui/GenericAddModal';
-import type { Work, WorkChunk, Priority } from '../types';
+import { Plus, Search, Edit2, Trash2, Calendar, ChevronDown, ChevronUp, FileText, ListTodo } from 'lucide-react';
+import { WorkFormModal } from '../components/works/WorkFormModal';
+import { WorkPlanModal } from '../components/works/WorkPlanModal';
+import type { Work, Priority, WorkTask } from '../types';
 import clsx from 'clsx';
 
-const PRIORITY_OPTIONS = [
-  { label: 'Низкий', value: 'low' },
-  { label: 'Средний', value: 'medium' },
-  { label: 'Высокий', value: 'high' },
-  { label: 'Критический', value: 'critical' },
-];
+const PRIORITY_LABELS: Record<Priority, string> = {
+  low: 'Низкий',
+  medium: 'Средний',
+  high: 'Высокий',
+  critical: 'Критический',
+};
 
 const PRIORITY_COLORS: Record<Priority, string> = {
-  low: 'bg-muted text-muted-foreground',
-  medium: 'bg-primary/10 text-primary',
-  high: 'bg-warning/10 text-warning',
-  critical: 'bg-destructive/10 text-destructive',
+  low: 'bg-slate-500/20 text-slate-400',
+  medium: 'bg-blue-500/20 text-blue-400',
+  high: 'bg-amber-500/20 text-amber-400',
+  critical: 'bg-red-500/20 text-red-400',
+};
+
+const WORK_TYPE_LABELS: Record<string, string> = {
+  general: 'Работа',
+  support: 'Сопровождение',
+};
+
+type TabType = 'active' | 'completed';
+
+// Progress bar component
+const ProgressBar: React.FC<{ tasks: WorkTask[] }> = ({ tasks }) => {
+  const total = tasks.filter(t => t.status !== 'cancelled').length;
+  const done = tasks.filter(t => t.status === 'done').length;
+  const partial = tasks.filter(t => t.status === 'partial').length;
+  
+  if (total === 0) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
+  
+  const donePercent = (done / total) * 100;
+  const partialPercent = (partial / total) * 100;
+  
+  return (
+    <div className="flex items-center gap-2">
+      <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
+        <div className="h-full flex">
+          <div 
+            className="bg-green-500 h-full" 
+            style={{ width: `${donePercent}%` }}
+          />
+          <div 
+            className="bg-amber-500 h-full" 
+            style={{ width: `${partialPercent}%` }}
+          />
+        </div>
+      </div>
+      <span className="text-xs text-muted-foreground whitespace-nowrap">
+        {done}/{total}
+      </span>
+    </div>
+  );
 };
 
 export const WorksView: React.FC = () => {
-  const { works, chunks, addWork, addChunk, updateWork, updateChunk, deleteWork, deleteChunk } = useWorkStore();
+  const { works, deleteWork, updateWork } = useWorkStore();
   const { dataCenters } = useDataCenterStore();
   
-  const [isWorkModalOpen, setIsWorkModalOpen] = React.useState(false);
-  const [isChunkModalOpen, setIsChunkModalOpen] = React.useState(false);
-  const [selectedWorkId, setSelectedWorkId] = React.useState<string | null>(null);
+  // UI State
+  const [activeTab, setActiveTab] = React.useState<TabType>('active');
+  const [search, setSearch] = React.useState('');
+  const [sortField, setSortField] = React.useState<'name' | 'priority' | 'dueDate'>('dueDate');
+  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
+  
+  // Modal State
+  const [showWorkForm, setShowWorkForm] = React.useState(false);
   const [editingWork, setEditingWork] = React.useState<Work | null>(null);
-  const [editingChunk, setEditingChunk] = React.useState<WorkChunk | null>(null);
+  const [planningWork, setPlanningWork] = React.useState<Work | null>(null);
 
-  const handleAddWork = (data: any) => {
-    addWork({
-      id: `w${Date.now()}`,
-      name: data.name,
-      description: data.description,
-      dueDate: data.dueDate,
-      totalDurationHours: 0,
-      dataCenterId: data.dataCenterId || undefined,
-      priority: data.priority || 'medium',
-    });
-  };
-
-  const handleEditWork = (data: any) => {
-    if (!editingWork) return;
-    updateWork(editingWork.id, {
-      name: data.name,
-      description: data.description,
-      dueDate: data.dueDate,
-      dataCenterId: data.dataCenterId || undefined,
-      priority: data.priority || 'medium',
-    });
-    setEditingWork(null);
-  };
-
-  const handleAddChunk = (data: any) => {
-    if (!selectedWorkId) return;
-    const workChunks = chunks.filter(c => c.workId === selectedWorkId);
-    const maxOrder = workChunks.reduce((max, c) => Math.max(max, c.order), 0);
+  // Filter and sort works
+  const filteredWorks = React.useMemo(() => {
+    let result = works;
     
-    const work = works.find(w => w.id === selectedWorkId);
-    const dcId = data.dataCenterId || work?.dataCenterId;
-
-    addChunk({
-      id: `c${Date.now()}`,
-      workId: selectedWorkId,
-      title: data.title,
-      durationHours: Number(data.durationHours),
-      order: maxOrder + 1,
-      status: 'pending',
-      dataCenterId: dcId,
-      priority: data.priority || undefined,
+    // Tab filter
+    if (activeTab === 'active') {
+      result = result.filter(w => !['completed', 'documented'].includes(w.status));
+    } else {
+      result = result.filter(w => ['completed', 'documented'].includes(w.status));
+    }
+    
+    // Search filter
+    if (search) {
+      const s = search.toLowerCase();
+      result = result.filter(w => 
+        w.name.toLowerCase().includes(s) || 
+        w.description?.toLowerCase().includes(s)
+      );
+    }
+    
+    // Sort
+    const priorityOrder: Record<Priority, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    result = [...result].sort((a, b) => {
+      let cmp = 0;
+      if (sortField === 'name') {
+        cmp = (a.name || '').localeCompare(b.name || '');
+      } else if (sortField === 'priority') {
+        const pA = priorityOrder[a.priority] ?? 99;
+        const pB = priorityOrder[b.priority] ?? 99;
+        cmp = pA - pB;
+      } else if (sortField === 'dueDate') {
+        const dateA = a.dueDate || a.targetDate || '9999-12-31';
+        const dateB = b.dueDate || b.targetDate || '9999-12-31';
+        cmp = dateA.localeCompare(dateB);
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
     });
-  };
+    
+    return result;
+  }, [works, activeTab, search, sortField, sortDir]);
 
-  const handleEditChunk = (data: any) => {
-    if (!editingChunk) return;
-    updateChunk(editingChunk.id, {
-      title: data.title,
-      durationHours: Number(data.durationHours),
-      dataCenterId: data.dataCenterId || undefined,
-      priority: data.priority || undefined,
-    });
-    setEditingChunk(null);
-  };
+  // Counts
+  const activeCount = works.filter(w => !['completed', 'documented'].includes(w.status)).length;
+  const completedCount = works.filter(w => ['completed', 'documented'].includes(w.status)).length;
 
-  const openChunkModal = (workId: string) => {
-    setSelectedWorkId(workId);
-    setIsChunkModalOpen(true);
-  };
-
-  const dcOptions = dataCenters.map(dc => ({ label: dc.name, value: dc.id }));
-
-  const workFields: FieldConfig[] = [
-    { name: 'name', label: 'Название работы', type: 'text', required: true, placeholder: 'Например: Обслуживание серверов' },
-    { name: 'description', label: 'Описание', type: 'textarea', required: true, placeholder: 'Подробности...' },
-    { name: 'dueDate', label: 'Срок выполнения', type: 'date', required: true },
-    { name: 'dataCenterId', label: 'Датацентр', type: 'select', required: false, options: dcOptions, placeholder: 'Выберите ДЦ' },
-    { name: 'priority', label: 'Приоритет', type: 'select', required: true, options: PRIORITY_OPTIONS, defaultValue: 'medium' },
-  ];
-
-  const selectedWork = works.find(w => w.id === selectedWorkId);
-  const chunkFields: FieldConfig[] = [
-    { name: 'title', label: 'Название этапа', type: 'text', required: true, placeholder: 'Например: Чанк 1.1' },
-    { name: 'durationHours', label: 'Длительность (часы)', type: 'number', required: true, placeholder: '4' },
-    { 
-      name: 'dataCenterId', 
-      label: 'Датацентр', 
-      type: 'select', 
-      required: false, 
-      options: dcOptions, 
-      placeholder: selectedWork?.dataCenterId 
-        ? `По умолчанию: ${dataCenters.find(d => d.id === selectedWork.dataCenterId)?.name || 'ДЦ работы'}`
-        : 'Выберите ДЦ'
-    },
-    { 
-      name: 'priority', 
-      label: 'Приоритет', 
-      type: 'select', 
-      required: false, 
-      options: PRIORITY_OPTIONS, 
-      placeholder: `По умолчанию: ${selectedWork?.priority || 'medium'}`
-    },
-  ];
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'assigned':
-        return <span className="badge-success">Утверждено</span>;
-      case 'planned':
-        return <span className="badge-warning">Запланировано</span>;
-      case 'completed':
-        return <span className="badge-secondary">Завершено</span>;
-      default:
-        return <span className="badge-outline">Ожидает</span>;
+  // Handlers
+  const handleSort = (field: typeof sortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
     }
   };
 
+  const handleWorkSaved = (work: Work) => {
+    // Если это новая работа типа general, сразу открыть редактор плана
+    if (!editingWork && work.workType === 'general') {
+      setPlanningWork(work);
+    }
+    setEditingWork(null);
+    setShowWorkForm(false);
+  };
+
+  const handlePlanUpdated = () => {
+    // Refresh works list
+    setPlanningWork(null);
+  };
+
+  const handleDelete = async (workId: string) => {
+    if (confirm('Удалить работу?')) {
+      await deleteWork(workId);
+    }
+  };
+
+  const SortIcon: React.FC<{ field: typeof sortField }> = ({ field }) => {
+    if (sortField !== field) return null;
+    return sortDir === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />;
+  };
+
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '—';
+    return new Date(dateStr).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="h-[calc(100vh-8rem)] flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
         <div>
-          <h2 className="text-2xl font-bold text-foreground">Список работ</h2>
-          <p className="text-muted-foreground mt-1">Управление задачами и этапами работ</p>
+          <h2 className="text-2xl font-bold text-foreground">Работы</h2>
+          <p className="text-muted-foreground text-sm">Управление задачами и планирование</p>
         </div>
-        <button onClick={() => setIsWorkModalOpen(true)} className="btn-primary">
+        <button onClick={() => setShowWorkForm(true)} className="btn-primary">
           <Plus size={16} className="mr-2" />
           Создать работу
         </button>
       </div>
 
-      <div className="grid gap-4">
-        {works.map(work => {
-          const workChunks = chunks.filter(c => c.workId === work.id);
-          const completedChunks = workChunks.filter(c => c.status === 'completed').length;
-          const progress = workChunks.length > 0 ? (completedChunks / workChunks.length) * 100 : 0;
-          
-          return (
-            <div key={work.id} className="card overflow-hidden hover:shadow-soft transition-shadow">
-              <div className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex items-start gap-4">
-                    <div className={clsx("p-3 rounded-xl", PRIORITY_COLORS[work.priority])}>
-                      <FileText size={24} />
-                    </div>
+      {/* Tabs & Search */}
+      <div className="flex items-center justify-between mb-4">
+        {/* Tabs */}
+        <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={clsx(
+              "px-4 py-2 text-sm font-medium rounded-md transition-colors",
+              activeTab === 'active'
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Активные
+            <span className="ml-2 px-1.5 py-0.5 rounded text-xs bg-primary/10 text-primary">
+              {activeCount}
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('completed')}
+            className={clsx(
+              "px-4 py-2 text-sm font-medium rounded-md transition-colors",
+              activeTab === 'completed'
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Завершённые
+            <span className="ml-2 px-1.5 py-0.5 rounded text-xs bg-muted-foreground/20">
+              {completedCount}
+            </span>
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="relative">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Поиск..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input pl-9 w-64"
+          />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="flex-1 overflow-auto card">
+        <table className="w-full">
+          <thead className="sticky top-0 bg-card border-b border-border">
+            <tr className="text-left text-sm text-muted-foreground">
+              <th 
+                className="px-4 py-3 font-medium cursor-pointer hover:text-foreground"
+                onClick={() => handleSort('name')}
+              >
+                <div className="flex items-center gap-1">
+                  Название
+                  <SortIcon field="name" />
+                </div>
+              </th>
+              <th className="px-4 py-3 font-medium">Инициатор</th>
+              <th className="px-4 py-3 font-medium">Тип</th>
+              <th 
+                className="px-4 py-3 font-medium cursor-pointer hover:text-foreground"
+                onClick={() => handleSort('priority')}
+              >
+                <div className="flex items-center gap-1">
+                  Приоритет
+                  <SortIcon field="priority" />
+                </div>
+              </th>
+              <th className="px-4 py-3 font-medium">Прогресс</th>
+              <th 
+                className="px-4 py-3 font-medium cursor-pointer hover:text-foreground"
+                onClick={() => handleSort('dueDate')}
+              >
+                <div className="flex items-center gap-1">
+                  Дедлайн
+                  <SortIcon field="dueDate" />
+                </div>
+              </th>
+              <th className="px-4 py-3 font-medium text-right">Действия</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {filteredWorks.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                  <FileText size={48} className="mx-auto mb-4 opacity-50" />
+                  <p>Нет работ для отображения</p>
+                  <button
+                    onClick={() => setShowWorkForm(true)}
+                    className="mt-4 text-primary hover:underline text-sm"
+                  >
+                    Создать первую работу
+                  </button>
+                </td>
+              </tr>
+            ) : (
+              filteredWorks.map(work => (
+                <tr 
+                  key={work.id} 
+                  className="hover:bg-muted/50 transition-colors"
+                >
+                  <td className="px-4 py-3">
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-lg font-semibold text-foreground">{work.name}</h3>
-                        <span className={clsx("text-xs px-2 py-0.5 rounded font-medium", PRIORITY_COLORS[work.priority])}>
-                          <Flag size={10} className="inline mr-1" />
-                          {PRIORITY_OPTIONS.find(p => p.value === work.priority)?.label}
-                        </span>
-                      </div>
-                      <p className="text-muted-foreground mt-1">{work.description}</p>
+                      <div className="font-medium text-foreground">{work.name}</div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    {work.dataCenterId && (
-                      <div className="flex items-center gap-1 text-muted-foreground">
-                        <MapPin size={14} />
-                        <span className="text-sm">{dataCenters.find(d => d.id === work.dataCenterId)?.name}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-1 text-muted-foreground">
-                      <Calendar size={14} />
-                      <span className="text-sm">До {work.dueDate}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
+                  </td>
+                  <td className="px-4 py-3 text-sm text-muted-foreground">
+                    {work.authorId || '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="text-sm">{WORK_TYPE_LABELS[work.workType] || work.workType}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={clsx(
+                      "px-2 py-1 rounded text-xs font-medium",
+                      PRIORITY_COLORS[work.priority]
+                    )}>
+                      {PRIORITY_LABELS[work.priority]}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <ProgressBar tasks={work.tasks || []} />
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {formatDate(work.dueDate || work.targetDate)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => setEditingWork(work)}
-                        className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
+                        className="p-2 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
                         title="Редактировать"
                       >
-                        <Edit2 size={14} />
+                        <Edit2 size={16} />
+                      </button>
+                      {work.workType === 'general' && (
+                        <button
+                          onClick={() => setPlanningWork(work)}
+                          className="p-2 rounded hover:bg-primary/10 transition-colors text-muted-foreground hover:text-primary"
+                          title="Редактировать план"
+                        >
+                          <ListTodo size={16} />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(work.id)}
+                        className="p-2 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+                        title="Удалить"
+                      >
+                        <Trash2 size={16} />
                       </button>
                       <button
                         onClick={() => {
-                          if (confirm('Удалить работу и все её этапы?')) {
-                            deleteWork(work.id);
-                          }
+                          // TODO: Navigate to calendar with this work selected
+                          window.location.href = '/calendar';
                         }}
-                        className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
-                        title="Удалить"
+                        className="p-2 rounded hover:bg-primary/10 transition-colors text-muted-foreground hover:text-primary"
+                        title="Запланировать"
                       >
-                        <Trash2 size={14} />
+                        <Calendar size={16} />
                       </button>
                     </div>
-                  </div>
-                </div>
-
-                {/* Progress Bar */}
-                <div className="mb-4">
-                  <div className="flex justify-between text-sm mb-2">
-                    <span className="text-muted-foreground">Прогресс</span>
-                    <span className="font-medium text-foreground">{completedChunks}/{workChunks.length} этапов</span>
-                  </div>
-                  <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-primary rounded-full transition-all duration-500"
-                      style={{ width: `${progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Chunks */}
-                <div className="bg-muted/50 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-sm font-medium text-foreground flex items-center gap-2">
-                      <Clock size={14} />
-                      Этапы работ
-                    </h4>
-                    <button 
-                        onClick={() => openChunkModal(work.id)}
-                        className="text-xs flex items-center gap-1 text-primary hover:underline font-medium"
-                    >
-                        <Plus size={12} />
-                        Добавить этап
-                    </button>
-                  </div>
-                  
-                  <div className="flex flex-wrap gap-2">
-                    {workChunks.map(chunk => (
-                      <div 
-                        key={chunk.id} 
-                        className={clsx(
-                          "flex items-center gap-2 px-3 py-2 rounded-lg border transition-all group",
-                          chunk.status === 'completed' 
-                            ? "bg-success/10 border-success/30 text-success" 
-                            : chunk.status === 'assigned'
-                            ? "bg-success/5 border-success/30 text-foreground"
-                            : chunk.status === 'planned'
-                            ? "bg-warning/10 border-warning/30 text-foreground"
-                            : "bg-card border-border text-foreground hover:border-primary/50"
-                        )}
-                      >
-                        <div className="flex flex-col">
-                          <span className="font-medium text-sm">{chunk.title}</span>
-                          <span className="text-[11px] text-muted-foreground">Этап {chunk.order} • {chunk.durationHours}ч</span>
-                        </div>
-                        {getStatusBadge(chunk.status)}
-                        {chunk.status === 'pending' && (
-                          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
-                              onClick={() => {
-                                setSelectedWorkId(work.id);
-                                setEditingChunk(chunk);
-                              }}
-                              className="p-1 text-muted-foreground hover:text-foreground hover:bg-muted rounded transition-colors"
-                              title="Редактировать"
-                            >
-                              <Edit2 size={12} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (confirm('Удалить этап?')) {
-                                  deleteChunk(chunk.id);
-                                }
-                              }}
-                              className="p-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded transition-colors"
-                              title="Удалить"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                    {workChunks.length === 0 && (
-                        <div className="text-sm text-muted-foreground italic">Нет этапов</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
-      <GenericAddModal
-        isOpen={isWorkModalOpen}
-        onClose={() => setIsWorkModalOpen(false)}
-        title="Создать новую работу"
-        fields={workFields}
-        onSubmit={handleAddWork}
-      />
+      {/* Work Form Modal */}
+      {(showWorkForm || editingWork) && (
+        <WorkFormModal
+          work={editingWork}
+          dataCenters={dataCenters}
+          onSaved={handleWorkSaved}
+          onClose={() => {
+            setShowWorkForm(false);
+            setEditingWork(null);
+          }}
+        />
+      )}
 
-      <GenericAddModal
-        isOpen={isChunkModalOpen}
-        onClose={() => setIsChunkModalOpen(false)}
-        title="Добавить этап работы"
-        fields={chunkFields}
-        onSubmit={handleAddChunk}
-        submitLabel="Добавить этап"
-      />
-
-      {/* Edit Work Modal */}
-      <GenericAddModal
-        isOpen={!!editingWork}
-        onClose={() => setEditingWork(null)}
-        title="Редактировать работу"
-        fields={workFields}
-        onSubmit={handleEditWork}
-        submitLabel="Сохранить"
-        initialData={editingWork ? {
-          name: editingWork.name,
-          description: editingWork.description,
-          dueDate: editingWork.dueDate,
-          dataCenterId: editingWork.dataCenterId,
-          priority: editingWork.priority,
-        } : undefined}
-      />
-
-      {/* Edit Chunk Modal */}
-      <GenericAddModal
-        isOpen={!!editingChunk}
-        onClose={() => setEditingChunk(null)}
-        title="Редактировать этап"
-        fields={chunkFields}
-        onSubmit={handleEditChunk}
-        submitLabel="Сохранить"
-        initialData={editingChunk ? {
-          title: editingChunk.title,
-          durationHours: editingChunk.durationHours,
-          dataCenterId: editingChunk.dataCenterId,
-          priority: editingChunk.priority,
-        } : undefined}
-      />
+      {/* Work Plan Modal */}
+      {planningWork && (
+        <WorkPlanModal
+          work={planningWork}
+          dataCenters={dataCenters}
+          onUpdated={handlePlanUpdated}
+          onClose={() => setPlanningWork(null)}
+        />
+      )}
     </div>
   );
 };

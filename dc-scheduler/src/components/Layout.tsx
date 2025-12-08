@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Map, Users, Calendar, Hammer, Menu, X } from 'lucide-react';
+import { Map, Users, Calendar, Hammer, Menu, X, ClipboardList, Settings } from 'lucide-react';
 import { ThemeToggle } from './ui/ThemeToggle';
 import clsx from 'clsx';
 
@@ -9,10 +9,12 @@ export const Layout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
 
   const navItems = [
-    { path: '/works', label: 'Список работ', icon: Hammer },
+    { path: '/calendar', label: 'Календарь', icon: Calendar },
+    { path: '/works', label: 'Работы', icon: Hammer },
+    { path: '/my-tasks', label: 'Мои задачи', icon: ClipboardList },
     { path: '/engineers', label: 'Инженеры', icon: Users },
     { path: '/regions', label: 'Регионы и ДЦ', icon: Map },
-    { path: '/calendar', label: 'Календарь работ', icon: Calendar },
+    { path: '/settings', label: 'Настройки', icon: Settings },
   ];
 
   return (
@@ -46,11 +48,11 @@ export const Layout: React.FC = () => {
       {/* Sidebar */}
       <aside
         className={clsx(
-          "fixed top-16 left-0 bottom-0 bg-sidebar border-r border-sidebar-border transition-all duration-300 z-40",
-          sidebarOpen ? "w-64" : "w-0 -translate-x-full"
+          "fixed top-16 left-0 bottom-0 bg-sidebar border-r border-sidebar-border transition-transform duration-300 z-40 w-64 overflow-hidden",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <nav className="p-4 space-y-2">
+        <nav className="h-full p-4 space-y-2">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
@@ -75,7 +77,7 @@ export const Layout: React.FC = () => {
       {/* Main Content */}
       <main
         className={clsx(
-          "pt-16 min-h-screen transition-all duration-300",
+          "pt-16 min-h-screen transition-[padding] duration-300",
           sidebarOpen ? "pl-64" : "pl-0"
         )}
       >

@@ -11,6 +11,7 @@ export interface DataCenter {
 }
 
 export interface TimeSlot {
+  id?: string;
   start: number; // Hour 0-23
   end: number;   // Hour 0-24
 }
@@ -24,31 +25,127 @@ export interface Engineer {
 
 export type Priority = 'low' | 'medium' | 'high' | 'critical';
 
+// Типы работ: general (работа с планом) или support (сопровождение)
+export type WorkType = 'general' | 'support';
+
+// Work status flow:
+// general: draft -> ready -> scheduling -> in_progress -> completed
+// support: created -> scheduling -> assigned -> completed
+export type WorkStatus = 'draft' | 'created' | 'ready' | 'scheduling' | 'assigned' | 'in_progress' | 'completed';
+
+// Тип связи между этапами
+export type ChunkLinkType = 'sync' | 'dependency';
+
+// Совместимость слота для drag-and-drop (светофор)
+export type SlotCompatibility = 'green' | 'yellow' | 'red';
+
+// Ограничения для чанка (рассчитываются бэкендом)
+export interface ChunkConstraints {
+  allowedRegionIds: string[];      // Разрешённые регионы
+  minDate?: string;                // Самая ранняя дата (из-за зависимостей)
+  maxDate?: string;                // Самая поздняя дата (дедлайн)
+  fixedDate?: string;              // Фиксированная дата (для support)
+  fixedTime?: number;              // Фиксированное время 0-23
+  dependsOnChunkIds: string[];     // Зависимости (Finish-to-Start)
+  syncChunkIds: string[];          // Синхронные (Start-to-Start)
+  durationHours: number;           // Длительность
+  dataCenterId?: string;           // ID дата-центра
+}
+
+export interface WorkAttachment {
+  id: string;
+  workId: string;
+  filename: string;
+  minioKey: string;
+  contentType?: string;
+  size: number;
+  uploadedById?: string;
+  createdAt: string;
+}
+
 export interface Work {
   id: string;
   name: string;
-  description: string;
-  dueDate: string; // ISO date
-  totalDurationHours: number;
-  dataCenterId?: string; // Default DC for this work
+  description?: string;
+  workType: WorkType;
   priority: Priority;
+  status: WorkStatus;
+  version: number;
+  authorId?: string;
+  
+  // === Для general (работа) ===
+  dueDate?: string; // Дедлайн (опционально)
+  
+  // === Для support (сопровождение) ===
+  dataCenterId?: string;  // ДЦ (обязательно для support)
+  targetDate?: string;    // Дата выезда (обязательно для support)
+  targetTime?: number;    // Время начала 0-23 (опционально)
+  durationHours?: number; // Продолжительность 1-12ч (обязательно для support)
+  contactInfo?: string;   // Контакт для согласования
+  
+  // Вложенные сущности
+  tasks?: WorkTask[];
+  chunks?: WorkChunk[];
+  attachments?: WorkAttachment[];
 }
 
-export type ChunkStatus = 'pending' | 'planned' | 'assigned' | 'completed';
+// Chunk status flow: created -> planned -> assigned -> in_progress -> completed
+export type ChunkStatus = 'created' | 'planned' | 'assigned' | 'in_progress' | 'completed';
+
+// Связь между этапами
+export interface ChunkLink {
+  id: string;
+  chunkId: string;
+  linkedChunkId: string;
+  linkType: ChunkLinkType;
+  createdAt: string;
+}
+
+// Task status: todo -> done/partial/cancelled
+export type TaskStatus = 'todo' | 'done' | 'partial' | 'cancelled';
+
+// Задача внутри работы (план работ / чеклист)
+export interface WorkTask {
+  id: string;
+  workId: string;
+  chunkId?: string;
+  title: string;
+  description?: string;
+  dataCenterId?: string;
+  estimatedHours: number;
+  quantity?: number;
+  order: number;
+  status: TaskStatus;
+  completionNote?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface WorkChunk {
   id: string;
   workId: string;
   title: string;
-  durationHours: number;
+  description?: string;
   order: number;
   status: ChunkStatus;
-  assignedDate?: string; // YYYY-MM-DD
+  dataCenterId?: string;
+  version: number;
+  
+  // Вычисляемая длительность (сумма задач)
+  durationHours: number;
+  
+  // Назначение
   assignedEngineerId?: string;
-  assignedStartTime?: number; // Hour when chunk starts
-  slotOrder?: number; // Order within the slot for reordering
-  dataCenterId?: string; // Can override work's DC
-  priority?: Priority; // Inherits from work if not set
+  assignedDate?: string;
+  assignedStartTime?: number;
+  
+  // Задачи этапа
+  tasks?: WorkTask[];
+  // Связи этапа
+  links?: ChunkLink[];
+  
+  // Ограничения для drag-and-drop (светофор)
+  constraints?: ChunkConstraints;
 }
 
 // For the UI, we need a structure for the calendar slots
@@ -59,4 +156,40 @@ export interface CalendarSlot {
   startTime: number;
   endTime: number;
   chunks: WorkChunk[];
+}
+
+// Unified item for sidebar: chunk (from general work) or support work
+export interface SchedulableItem {
+  id: string;
+  type: 'chunk' | 'support';
+  title: string;
+  durationHours: number;
+  workId: string;
+  workName: string;
+  workType: WorkType;
+  priority: Priority;
+  dataCenterId?: string;
+  status: ChunkStatus | WorkStatus;
+  
+  // For chunks
+  order?: number;
+  
+  // Assignment info
+  assignedEngineerId?: string;
+  assignedDate?: string;
+  assignedStartTime?: number;
+  
+  // For support: optional time (if not set - needs agreement)
+  // Planned date/time of the support visit
+  targetDate?: string;
+  targetTime?: number;
+  contactInfo?: string;
+  
+  // Tasks (for chunks)
+  tasks?: WorkTask[];
+  // Links (for chunks)
+  links?: ChunkLink[];
+  
+  // Ограничения для drag-and-drop (светофор)
+  constraints?: ChunkConstraints;
 }
