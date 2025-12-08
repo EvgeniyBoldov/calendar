@@ -29,9 +29,12 @@ export type Priority = 'low' | 'medium' | 'high' | 'critical';
 export type WorkType = 'general' | 'support';
 
 // Work status flow:
-// general: draft -> ready -> scheduling -> in_progress -> completed
-// support: created -> scheduling -> assigned -> completed
-export type WorkStatus = 'draft' | 'created' | 'ready' | 'scheduling' | 'assigned' | 'in_progress' | 'completed';
+// general: draft -> ready -> scheduling -> in_progress -> completed -> documented
+// support: created -> scheduling -> assigned -> completed -> documented
+export type WorkStatus = 'draft' | 'created' | 'ready' | 'scheduling' | 'assigned' | 'in_progress' | 'completed' | 'documented';
+
+// Стратегии планирования (должны совпадать с backend PlanningStrategy)
+export type PlanningStrategyId = 'balanced' | 'dense' | 'sla';
 
 // Тип связи между этапами
 export type ChunkLinkType = 'sync' | 'dependency';

@@ -1,15 +1,16 @@
 import React from 'react';
 import { Wand2, ChevronDown, Users, Zap, Target, Sparkles, X, Check, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
+import type { PlanningStrategyId, PlanningSession } from '../../types';
 
-interface PlanningStrategy {
-  id: string;
+interface PlanningStrategyMeta {
+  id: PlanningStrategyId;
   name: string;
   description: string;
   icon: React.ElementType;
 }
 
-const STRATEGIES: PlanningStrategy[] = [
+const STRATEGIES: PlanningStrategyMeta[] = [
   {
     id: 'balanced',
     name: 'Оптимальное',
@@ -30,28 +31,8 @@ const STRATEGIES: PlanningStrategy[] = [
   },
 ];
 
-interface PlanningSession {
-  id: string;
-  strategy: string;
-  status: string;
-  assignments: Array<{
-    chunk_id: string;
-    engineer_id: string;
-    date: string;
-    start_time: number;
-    duration_hours: number;
-    dc_id?: string;
-  }>;
-  stats: {
-    total_chunks: number;
-    assigned: number;
-    failed: number;
-    by_engineer?: Record<string, { chunks: number; hours: number }>;
-  };
-}
-
 interface BulkPlanningMenuProps {
-  onCreateSession: (strategy: string) => Promise<PlanningSession>;
+  onCreateSession: (strategy: PlanningStrategyId) => Promise<PlanningSession>;
   onApplySession: (sessionId: string) => Promise<void>;
   onCancelSession: (sessionId: string) => Promise<void>;
   activeSession: PlanningSession | null;

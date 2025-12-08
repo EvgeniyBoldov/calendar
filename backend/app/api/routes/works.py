@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_
 from sqlalchemy.orm import selectinload
@@ -14,10 +15,11 @@ from ...schemas import (
 )
 from ...schemas.work import WorkAttachmentResponse
 from ...services import sync_service
-from ...services.scheduling_service import SchedulingServiceV2
+from ...services.planning.service import PlanningService
 from ...services.constraints_service import ConstraintsService
 from ...services.minio_service import minio_service
 from ...schemas.sync import SyncEventType
+from ...models.planning_session import PlanningStrategy
 
 router = APIRouter()
 
@@ -431,7 +433,7 @@ async def auto_assign_chunk(work_id: str, chunk_id: str, db: AsyncSession = Depe
     if not check.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Chunk not found")
     
-    scheduler = SchedulingServiceV2(db)
+    scheduler = PlanningService(db)
     result = await scheduler.assign_chunk(chunk_id)
     
     if not result.success:
@@ -470,7 +472,7 @@ async def unassign_chunk(work_id: str, chunk_id: str, db: AsyncSession = Depends
     if not check.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Chunk not found")
     
-    scheduler = SchedulingServiceV2(db)
+    scheduler = PlanningService(db)
     result = await scheduler.unassign_chunk(chunk_id)
     
     if not result.success:
@@ -508,7 +510,7 @@ async def suggest_slot_for_chunk(work_id: str, chunk_id: str, db: AsyncSession =
     if not check.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Chunk not found")
     
-    scheduler = SchedulingServiceV2(db)
+    scheduler = PlanningService(db)
     result = await scheduler.suggest_slot(chunk_id)
     
     if not result.success or not result.suggestion:
@@ -524,17 +526,31 @@ async def suggest_slot_for_chunk(work_id: str, chunk_id: str, db: AsyncSession =
     }
 
 
+class AutoAssignWorkRequest(BaseModel):
+    strategy: str | None = None  # balanced | dense | sla
+
+
 @router.post("/{work_id}/auto-assign")
-async def auto_assign_work(work_id: str, db: AsyncSession = Depends(get_db)):
-    """
-    Автоматически назначить все чанки работы.
-    """
+async def auto_assign_work(
+    work_id: str,
+    data: AutoAssignWorkRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Автоматически назначить все чанки работы по выбранной стратегии."""
     check = await db.execute(select(Work).where(Work.id == work_id))
     if not check.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Work not found")
     
-    scheduler = SchedulingServiceV2(db)
-    result = await scheduler.assign_all_chunks(work_id)
+    # Определяем стратегию
+    strategy_enum = PlanningStrategy.BALANCED
+    if data and data.strategy:
+        try:
+            strategy_enum = PlanningStrategy(data.strategy)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid strategy")
+
+    scheduler = PlanningService(db)
+    result = await scheduler.assign_all_chunks(work_id, strategy_enum=strategy_enum)
     
     # Получаем обновлённую работу с чанками
     work_result = await db.execute(

@@ -1,5 +1,7 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+import type { PlanningStrategyId, PlanningSession, PlanningSessionListResponse, AutoAssignWorkResponse } from '../types';
+
 export const toCamelCase = (obj: any): any => {
   if (Array.isArray(obj)) {
     return obj.map(v => toCamelCase(v));
@@ -125,7 +127,11 @@ export const api = {
     suggestSlot: (workId: string, chunkId: string) => request<any>(`/works/${workId}/chunks/${chunkId}/suggest-slot`),
     autoAssignChunk: (workId: string, chunkId: string) => request<any>(`/works/${workId}/chunks/${chunkId}/auto-assign`, { method: 'POST' }),
     unassignChunk: (workId: string, chunkId: string) => request<any>(`/works/${workId}/chunks/${chunkId}/unassign`, { method: 'POST' }),
-    autoAssignWork: (workId: string) => request<any>(`/works/${workId}/auto-assign`, { method: 'POST' }),
+    autoAssignWork: (workId: string, strategy?: PlanningStrategyId) =>
+      request<AutoAssignWorkResponse>(`/works/${workId}/auto-assign`, {
+        method: 'POST',
+        body: strategy ? JSON.stringify({ strategy }) : undefined,
+      }),
     cancelAllChunks: (workId: string) => request<any>(`/works/${workId}/cancel-all-chunks`, { method: 'POST' }),
     
     // Attachments
@@ -168,15 +174,16 @@ export const api = {
   // Planning sessions
   planning: {
     getStrategies: () => request<any>('/planning/strategies'),
-    createSession: (strategy: string) => request<any>('/planning/sessions', { 
+    createSession: (strategy: PlanningStrategyId) => request<PlanningSession>('/planning/sessions', { 
       method: 'POST', 
       body: JSON.stringify({ strategy }) 
     }),
-    getSession: (id: string) => request<any>(`/planning/sessions/${id}`),
-    listSessions: (status?: string) => request<any>(`/planning/sessions${status ? `?status=${status}` : ''}`),
-    applySession: (id: string) => request<any>(`/planning/sessions/${id}/apply`, { method: 'POST' }),
-    cancelSession: (id: string) => request<any>(`/planning/sessions/${id}/cancel`, { method: 'POST' }),
-    deleteSession: (id: string) => request<any>(`/planning/sessions/${id}`, { method: 'DELETE' }),
+    getSession: (id: string) => request<PlanningSession>(`/planning/sessions/${id}`),
+    listSessions: (status?: string) =>
+      request<PlanningSessionListResponse>(`/planning/sessions${status ? `?status=${status}` : ''}`),
+    applySession: (id: string) => request<{ success: boolean; appliedCount: number }>(`/planning/sessions/${id}/apply`, { method: 'POST' }),
+    cancelSession: (id: string) => request<{ success: boolean }>(`/planning/sessions/${id}/cancel`, { method: 'POST' }),
+    deleteSession: (id: string) => request<{ ok: boolean }>(`/planning/sessions/${id}`, { method: 'DELETE' }),
   },
   
   // Distance Matrix

@@ -12,7 +12,7 @@ import { ru } from 'date-fns/locale';
 import { ChevronDown, ChevronRight, ChevronLeft, Calendar, Package, AlertTriangle, Check, Server, Briefcase, Flag, HeadphonesIcon, X } from 'lucide-react';
 import { BulkPlanningMenu } from '../components/calendar/BulkPlanningMenu';
 import { api } from '../api/client';
-import type { SchedulableItem, Priority, WorkType, WorkChunk } from '../types';
+import type { SchedulableItem, Priority, WorkType, WorkChunk, PlanningSession } from '../types';
 import clsx from 'clsx';
 
 const PRIORITY_LABELS: Record<Priority, string> = { critical: 'Критический', high: 'Высокий', medium: 'Средний', low: 'Низкий' };
@@ -54,7 +54,7 @@ export const CalendarView: React.FC = () => {
   const [dcConflictMessage, setDcConflictMessage] = React.useState<string | null>(null);
   
   // Bulk planning session state
-  const [planningSession, setPlanningSession] = React.useState<any>(null);
+  const [planningSession, setPlanningSession] = React.useState<PlanningSession | null>(null);
   const [isPlanningLoading, setIsPlanningLoading] = React.useState(false);
   
   // Single item actions state

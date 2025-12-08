@@ -23,6 +23,7 @@ class WorkStatus(str, Enum):
     ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+    DOCUMENTED = "documented"
 
 
 class ChunkStatus(str, Enum):

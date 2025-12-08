@@ -11,7 +11,7 @@ from enum import Enum
 
 from ...database import get_db
 from ...models import PlanningSession, PlanningStrategy, PlanningSessionStatus
-from ...services.bulk_scheduling_service import BulkSchedulingService
+from ...services.planning.service import PlanningService
 from ...services import sync_service
 from ...schemas.sync import SyncEventType
 
@@ -64,13 +64,13 @@ async def create_planning_session(
     - priority_first: сначала критические и высокоприоритетные
     - optimal: минимизация переездов + приоритеты + баланс
     """
-    scheduler = BulkSchedulingService(db)
+    scheduler = PlanningService(db)
     
     # TODO: получить user_id из токена авторизации
     user_id = None
     
     strategy = PlanningStrategy(request.strategy.value)
-    session = await scheduler.create_planning_session(strategy, user_id)
+    session = await scheduler.create_session(strategy, user_id)
     
     # Broadcast для других пользователей
     await sync_service.broadcast(
@@ -164,7 +164,7 @@ async def apply_planning_session(
     Записывает все assignments в chunks со статусом PLANNED.
     После применения сессия переходит в статус APPLIED.
     """
-    scheduler = BulkSchedulingService(db)
+    scheduler = PlanningService(db)
     result = await scheduler.apply_session(session_id)
     
     if not result["success"]:
@@ -194,7 +194,7 @@ async def cancel_planning_session(
     Если сессия была применена - откатывает все назначения.
     Сессия переходит в статус CANCELLED.
     """
-    scheduler = BulkSchedulingService(db)
+    scheduler = PlanningService(db)
     result = await scheduler.cancel_session(session_id)
     
     if not result["success"]:
