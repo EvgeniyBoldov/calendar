@@ -63,8 +63,35 @@ export const useEngineerStore = create<EngineerState>((set, get) => ({
   
   addEngineer: async (engineerData) => {
     try {
-      await api.engineers.create(engineerData);
-      await get().fetchEngineers();
+      const created = await api.engineers.create(engineerData);
+
+      // Преобразуем ответ так же, как в fetchEngineers / useSync
+      const transformed: Engineer = {
+        id: created.id,
+        name: created.name,
+        regionId: created.regionId,
+        schedule: (created.timeSlots || []).reduce((acc: Record<string, TimeSlot[]>, slot: any) => {
+          const dateKey = slot.date;
+          if (!acc[dateKey]) acc[dateKey] = [];
+          acc[dateKey].push({
+            id: slot.id,
+            start: slot.startHour,
+            end: slot.endHour,
+          });
+          return acc;
+        }, {} as Record<string, TimeSlot[]>)
+      };
+
+      // Защита от дублей: engineer также придёт через realtime-sync
+      const state = get();
+      const existingIndex = state.engineers.findIndex((e) => e.id === transformed.id);
+      if (existingIndex >= 0) {
+        const updated = [...state.engineers];
+        updated[existingIndex] = transformed;
+        set({ engineers: updated });
+      } else {
+        set({ engineers: [...state.engineers, transformed] });
+      }
     } catch (error: any) {
       console.error('Failed to add engineer:', error);
     }

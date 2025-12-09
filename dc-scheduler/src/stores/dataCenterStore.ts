@@ -42,7 +42,13 @@ export const useDataCenterStore = create<DataCenterState>((set) => ({
   addRegion: async (regionData) => {
     try {
       const newRegion = await api.regions.create(regionData);
-      set((state) => ({ regions: [...state.regions, newRegion] }));
+      // Защита от дублей: region также придёт через realtime-sync
+      set((state) => {
+        if (state.regions.some((r) => r.id === newRegion.id)) {
+          return {};
+        }
+        return { regions: [...state.regions, newRegion] };
+      });
     } catch (error: any) {
       console.error('Failed to add region:', error);
     }
@@ -51,7 +57,13 @@ export const useDataCenterStore = create<DataCenterState>((set) => ({
   addDataCenter: async (dcData) => {
     try {
       const newDc = await api.dataCenters.create(dcData);
-      set((state) => ({ dataCenters: [...state.dataCenters, newDc] }));
+      // Защита от дублей: датацентр также придёт через realtime-sync
+      set((state) => {
+        if (state.dataCenters.some((d) => d.id === newDc.id)) {
+          return {};
+        }
+        return { dataCenters: [...state.dataCenters, newDc] };
+      });
     } catch (error: any) {
       console.error('Failed to add data center:', error);
     }

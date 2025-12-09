@@ -50,7 +50,9 @@ services:
       MINIO_ACCESS_KEY: minio_admin
       MINIO_SECRET_KEY: minio_secret
       MINIO_BUCKET: dc-scheduler
-      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000,https://localhost,https://calendar.local
+      JWT_SECRET_KEY: your-secret-key-change-in-production
+      COOKIE_SECURE: "false"  # true для HTTPS в проде
     ports:
       - "8000:8000"
     depends_on:
@@ -78,6 +80,22 @@ services:
       - ./dc-scheduler:/app
       - /app/node_modules
     command: npm run dev -- --host
+
+  # Nginx Reverse Proxy (HTTPS)
+  nginx:
+    image: nginx:alpine
+    container_name: dc-scheduler-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - backend
+      - frontend
+    profiles:
+      - https  # Запускается только с --profile https
 
 volumes:
   postgres_data:

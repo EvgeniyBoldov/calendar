@@ -1,12 +1,26 @@
 import React from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Map, Users, Calendar, Hammer, Menu, X, ClipboardList, Settings } from 'lucide-react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Map, Users, Calendar, Hammer, Menu, X, ClipboardList, Settings, LogOut } from 'lucide-react';
 import { ThemeToggle } from './ui/ThemeToggle';
+import { useAuthStore, roleLabels, roleColors } from '../stores/authStore';
+import { api } from '../api/client';
 import clsx from 'clsx';
 
 export const Layout: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
+  const { user, logout } = useAuthStore();
+
+  const handleLogout = async () => {
+    try {
+      await api.auth.logout();
+    } catch {
+      // Ignore errors
+    }
+    logout();
+    navigate('/login');
+  };
 
   const navItems = [
     { path: '/calendar', label: 'Календарь', icon: Calendar },
@@ -41,6 +55,30 @@ export const Layout: React.FC = () => {
           
           <div className="flex items-center gap-4">
             <ThemeToggle />
+            
+            {/* User info */}
+            {user && (
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex flex-col items-end">
+                  <span className="text-sm font-medium text-foreground">
+                    {user.fullName || user.login}
+                  </span>
+                  <span className={clsx(
+                    "text-xs px-2 py-0.5 rounded-full",
+                    roleColors[user.role]
+                  )}>
+                    {roleLabels[user.role]}
+                  </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="btn-ghost btn-icon rounded-lg text-muted-foreground hover:text-foreground"
+                  title="Выйти"
+                >
+                  <LogOut size={18} />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>

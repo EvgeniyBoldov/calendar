@@ -36,6 +36,49 @@ export type WorkStatus = 'draft' | 'created' | 'ready' | 'scheduling' | 'assigne
 // Стратегии планирования (должны совпадать с backend PlanningStrategy)
 export type PlanningStrategyId = 'balanced' | 'dense' | 'sla';
 
+// Planning Session types
+export interface PlanningSessionAssignment {
+  chunkId: string;
+  engineerId: string;
+  date: string;
+  startTime: number;
+  endTime: number;
+}
+
+export interface PlanningSessionStats {
+  totalChunks: number;
+  assignedChunks: number;
+  unassignedChunks: number;
+  engineersUsed: number;
+}
+
+export interface PlanningSession {
+  id: string;
+  strategy: PlanningStrategyId;
+  status: 'draft' | 'applied' | 'cancelled' | 'expired';
+  assignments: PlanningSessionAssignment[];
+  stats: PlanningSessionStats;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface PlanningSessionListResponse {
+  items: PlanningSession[];
+  total: number;
+}
+
+// Auto-assign response
+export interface AutoAssignWorkResponse {
+  ok: boolean;
+  result: {
+    success: boolean;
+    assignedCount: number;
+    failedCount: number;
+    message?: string;
+  };
+  work: Work;
+}
+
 // Тип связи между этапами
 export type ChunkLinkType = 'sync' | 'dependency';
 

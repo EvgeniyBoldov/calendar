@@ -1,6 +1,7 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 import type { PlanningStrategyId, PlanningSession, PlanningSessionListResponse, AutoAssignWorkResponse } from '../types';
+import type { User } from '../stores/authStore';
 
 export const toCamelCase = (obj: any): any => {
   if (Array.isArray(obj)) {
@@ -55,6 +56,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   
   const response = await fetch(url, {
     ...fetchOptions,
+    credentials: 'include',  // Важно для cookies
     headers: {
       'Content-Type': 'application/json',
       ...fetchOptions.headers,
@@ -69,7 +71,62 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   return toCamelCase(await response.json());
 }
 
+// Auth types
+interface LoginRequest {
+  login: string;
+  password: string;
+}
+
+interface LoginResponse {
+  user: User;
+  message: string;
+}
+
 export const api = {
+  // Auth
+  auth: {
+    login: async (data: LoginRequest): Promise<LoginResponse> => {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Login failed' }));
+        throw new Error(error.detail || `HTTP ${response.status}`);
+      }
+      return toCamelCase(await response.json());
+    },
+    
+    logout: async (): Promise<void> => {
+      await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    },
+    
+    refresh: async (): Promise<void> => {
+      const response = await fetch(`${API_URL}/api/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Token refresh failed');
+      }
+    },
+    
+    me: async (): Promise<User> => {
+      const response = await fetch(`${API_URL}/api/auth/me`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error('Not authenticated');
+      }
+      return toCamelCase(await response.json());
+    },
+  },
+  
   // Regions
   regions: {
     list: () => request<any[]>('/regions'),

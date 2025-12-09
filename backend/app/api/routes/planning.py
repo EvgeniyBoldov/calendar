@@ -1,5 +1,7 @@
 """
 API endpoints для массового планирования работ.
+
+Все эндпоинты требуют роль ADMIN или EXPERT.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,10 +12,11 @@ from datetime import datetime
 from enum import Enum
 
 from ...database import get_db
-from ...models import PlanningSession, PlanningStrategy, PlanningSessionStatus
+from ...models import PlanningSession, PlanningStrategy, PlanningSessionStatus, User
 from ...services.planning.service import PlanningService
 from ...services import sync_service
 from ...schemas.sync import SyncEventType
+from ..deps import PlannerUser, CurrentUser
 
 
 router = APIRouter()
@@ -50,27 +53,26 @@ class SessionListResponse(BaseModel):
 @router.post("/sessions", response_model=SessionResponse)
 async def create_planning_session(
     request: CreateSessionRequest,
+    current_user: PlannerUser,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Создать сессию планирования.
+    
+    Требует роль: ADMIN или EXPERT.
     
     Рассчитывает распределение всех неназначенных чанков по выбранной стратегии.
     Возвращает preview без записи в БД.
     
     Стратегии:
     - balanced: равномерное распределение по всем инженерам
-    - fill_first: максимально заполнять одних инженеров
-    - priority_first: сначала критические и высокоприоритетные
-    - optimal: минимизация переездов + приоритеты + баланс
+    - dense: плотная загрузка (экономия смен)
+    - sla: приоритет критичных задач
     """
     scheduler = PlanningService(db)
     
-    # TODO: получить user_id из токена авторизации
-    user_id = None
-    
     strategy = PlanningStrategy(request.strategy.value)
-    session = await scheduler.create_session(strategy, user_id)
+    session = await scheduler.create_session(strategy, current_user.id)
     
     # Broadcast для других пользователей
     await sync_service.broadcast(
@@ -96,11 +98,16 @@ async def create_planning_session(
 
 @router.get("/sessions", response_model=SessionListResponse)
 async def list_planning_sessions(
+    current_user: PlannerUser,
     status: PlanningSessionStatus | None = None,
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить список сессий планирования."""
+    """
+    Получить список сессий планирования.
+    
+    Требует роль: ADMIN или EXPERT.
+    """
     query = select(PlanningSession).order_by(PlanningSession.created_at.desc())
     
     if status:
@@ -131,9 +138,14 @@ async def list_planning_sessions(
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
 async def get_planning_session(
     session_id: str,
+    current_user: PlannerUser,
     db: AsyncSession = Depends(get_db)
 ):
-    """Получить сессию планирования по ID."""
+    """
+    Получить сессию планирования по ID.
+    
+    Требует роль: ADMIN или EXPERT.
+    """
     result = await db.execute(
         select(PlanningSession).where(PlanningSession.id == session_id)
     )
@@ -156,10 +168,13 @@ async def get_planning_session(
 @router.post("/sessions/{session_id}/apply")
 async def apply_planning_session(
     session_id: str,
+    current_user: PlannerUser,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Применить сессию планирования.
+    
+    Требует роль: ADMIN или EXPERT.
     
     Записывает все assignments в chunks со статусом PLANNED.
     После применения сессия переходит в статус APPLIED.
@@ -186,10 +201,13 @@ async def apply_planning_session(
 @router.post("/sessions/{session_id}/cancel")
 async def cancel_planning_session(
     session_id: str,
+    current_user: PlannerUser,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Отменить сессию планирования.
+    
+    Требует роль: ADMIN или EXPERT.
     
     Если сессия была применена - откатывает все назначения.
     Сессия переходит в статус CANCELLED.
@@ -213,9 +231,14 @@ async def cancel_planning_session(
 @router.delete("/sessions/{session_id}")
 async def delete_planning_session(
     session_id: str,
+    current_user: PlannerUser,
     db: AsyncSession = Depends(get_db)
 ):
-    """Удалить сессию планирования (только draft или cancelled)."""
+    """
+    Удалить сессию планирования (только draft или cancelled).
+    
+    Требует роль: ADMIN или EXPERT.
+    """
     result = await db.execute(
         select(PlanningSession).where(PlanningSession.id == session_id)
     )

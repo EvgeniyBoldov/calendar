@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import secrets
 
 
 class Settings(BaseSettings):
@@ -19,6 +20,17 @@ class Settings(BaseSettings):
     # App
     app_name: str = "DC Scheduler API"
     debug: bool = True
+    
+    # JWT / Auth
+    jwt_secret_key: str = secrets.token_urlsafe(32)  # Генерируется при старте, переопределить в .env для прода
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 7
+    
+    # Cookie settings
+    cookie_secure: bool = False  # True для HTTPS в проде
+    cookie_samesite: str = "lax"  # "strict" или "lax"
+    cookie_domain: str | None = None  # None = текущий домен
     
     class Config:
         env_file = ".env"

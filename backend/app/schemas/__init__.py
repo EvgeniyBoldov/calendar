@@ -7,7 +7,7 @@ from .work import (
     WorkTaskCreate, WorkTaskUpdate, WorkTaskResponse,
     WorkStatus, ChunkStatus, TaskStatus, Priority, WorkType
 )
-from .user import UserCreate, UserResponse
+from .user import UserCreate, UserUpdate, UserResponse, UserBrief, UserRole
 from .sync import SyncEvent, SyncEventType
 from .distance import (
     DistanceMatrixCreate, DistanceMatrixUpdate, DistanceMatrixResponse,
@@ -22,7 +22,7 @@ __all__ = [
     "WorkChunkCreate", "WorkChunkUpdate", "WorkChunkResponse",
     "WorkTaskCreate", "WorkTaskUpdate", "WorkTaskResponse",
     "WorkStatus", "ChunkStatus", "TaskStatus", "Priority", "WorkType",
-    "UserCreate", "UserResponse",
+    "UserCreate", "UserUpdate", "UserResponse", "UserBrief", "UserRole",
     "SyncEvent", "SyncEventType",
     "DistanceMatrixCreate", "DistanceMatrixUpdate", "DistanceMatrixResponse",
     "DistanceMatrixBulkCreate", "TravelTimeRequest", "TravelTimeResponse",

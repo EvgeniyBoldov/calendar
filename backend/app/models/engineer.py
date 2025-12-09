@@ -12,10 +12,14 @@ class Engineer(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     region_id: Mapped[str] = mapped_column(String(36), ForeignKey("regions.id"), nullable=False)
     
+    # Связь с пользователем (опционально - инженер может не иметь аккаунта)
+    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id"), nullable=True, unique=True)
+    
     # Relationships
     region = relationship("Region", back_populates="engineers")
     time_slots = relationship("TimeSlot", back_populates="engineer", cascade="all, delete-orphan")
     assigned_chunks = relationship("WorkChunk", back_populates="assigned_engineer")
+    user = relationship("User", back_populates="engineer")
 
 
 class TimeSlot(Base):

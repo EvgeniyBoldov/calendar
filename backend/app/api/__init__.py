@@ -1,8 +1,15 @@
 from fastapi import APIRouter
-from .routes import regions, datacenters, engineers, works, sync, planning, distance, attachments
+from .routes import regions, datacenters, engineers, works, sync, planning, distance, attachments, auth, users
 
 api_router = APIRouter()
 
+# Auth endpoints (без защиты)
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+
+# Admin endpoints
+api_router.include_router(users.router, prefix="/users", tags=["users"])
+
+# Protected endpoints
 api_router.include_router(regions.router, prefix="/regions", tags=["regions"])
 api_router.include_router(datacenters.router, prefix="/datacenters", tags=["datacenters"])
 api_router.include_router(engineers.router, prefix="/engineers", tags=["engineers"])
