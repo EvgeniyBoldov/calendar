@@ -23,10 +23,13 @@ class PlanningStrategy(str, Enum):
     BALANCED = "balanced"
     
     # Максимально заполнять одних инженеров, потом переходить к другим
-    FILL_FIRST = "fill_first"
+    # (экономия смен, "dense")
+    DENSE = "dense"
+    FILL_FIRST = "fill_first"  # Alias for DENSE (legacy)
     
-    # Сначала критические и высокоприоритетные
-    PRIORITY_FIRST = "priority_first"
+    # Сначала критические и высокоприоритетные ("sla")
+    SLA = "sla"
+    PRIORITY_FIRST = "priority_first" # Alias for SLA (legacy)
     
     # Оптимальный вариант: минимизация переездов + учёт приоритетов + баланс
     OPTIMAL = "optimal"

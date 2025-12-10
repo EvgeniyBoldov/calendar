@@ -352,7 +352,12 @@ class PlanningService:
         return list(res.scalars().all())
 
     async def _get_chunk(self, cid: str) -> WorkChunk | None:
-        return await self.db.get(WorkChunk, cid)
+        result = await self.db.execute(
+            select(WorkChunk)
+            .options(selectinload(WorkChunk.tasks))
+            .where(WorkChunk.id == cid)
+        )
+        return result.scalar_one_or_none()
         
     async def _get_work(self, wid: str) -> Work | None:
         return await self.db.get(Work, wid)
@@ -361,6 +366,7 @@ class PlanningService:
         res = await self.db.execute(
             select(WorkChunk, Work)
             .join(Work)
+            .options(selectinload(WorkChunk.tasks))
             .where(WorkChunk.status == ChunkStatus.CREATED)
         )
         return list(res.all())

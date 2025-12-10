@@ -15,7 +15,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
 
 from app.config import get_settings
-from app.models import User, UserRole
+from datetime import date, timedelta
+from app.models import User, UserRole, Region, DataCenter, Engineer, TimeSlot
 from app.services.auth_service import AuthService
 
 
@@ -71,20 +72,46 @@ async def create_admin(
 
 
 async def create_test_users():
-    """Создаёт набор тестовых пользователей всех ролей"""
+    """Создаёт набор тестовых пользователей, регион, ДЦ и слоты для инженера"""
     settings = get_settings()
     
     engine = create_async_engine(settings.database_url)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
-    test_users = [
-        {"login": "admin", "password": "admin123", "email": "admin@localhost", "full_name": "Администратор", "role": UserRole.ADMIN},
-        {"login": "expert", "password": "expert123", "email": "expert@localhost", "full_name": "Эксперт Планирования", "role": UserRole.EXPERT},
-        {"login": "trp", "password": "trp123", "email": "trp@localhost", "full_name": "Заказчик ТРП", "role": UserRole.TRP},
-        {"login": "engineer", "password": "engineer123", "email": "engineer@localhost", "full_name": "Инженер Иванов", "role": UserRole.ENGINEER},
-    ]
-    
     async with async_session() as session:
+        # 1. Создаем Регион
+        result = await session.execute(select(Region).where(Region.name == "Москва"))
+        region = result.scalar_one_or_none()
+        if not region:
+            region = Region(name="Москва")
+            session.add(region)
+            await session.flush()
+            print(f"✅ Регион 'Москва' создан")
+        else:
+            print(f"⏭️  Регион 'Москва' уже существует")
+
+        # 2. Создаем ДЦ (для импорта работ)
+        dcn_names = ["M1", "M2"]
+        for name in dcn_names:
+            result = await session.execute(select(DataCenter).where(DataCenter.name == name))
+            dc = result.scalar_one_or_none()
+            if not dc:
+                dc = DataCenter(name=name, region_id=region.id)
+                session.add(dc)
+                print(f"✅ ДЦ '{name}' создан")
+            else:
+                print(f"⏭️  ДЦ '{name}' уже существует")
+
+        # 3. Пользователи
+        test_users = [
+            {"login": "admin", "password": "admin123", "email": "admin@localhost", "full_name": "Администратор", "role": UserRole.ADMIN},
+            {"login": "expert", "password": "expert123", "email": "expert@localhost", "full_name": "Эксперт Планирования", "role": UserRole.EXPERT},
+            {"login": "trp", "password": "trp123", "email": "trp@localhost", "full_name": "Заказчик ТРП", "role": UserRole.TRP},
+            {"login": "engineer", "password": "engineer123", "email": "engineer@localhost", "full_name": "Инженер Иванов", "role": UserRole.ENGINEER},
+        ]
+        
+        engineer_user = None
+
         for user_data in test_users:
             result = await session.execute(
                 select(User).where(User.login == user_data["login"])
@@ -92,7 +119,9 @@ async def create_test_users():
             existing = result.scalar_one_or_none()
             
             if existing:
-                print(f"⏭️  {user_data['login']} уже существует")
+                print(f"⏭️  Пользователь {user_data['login']} уже существует")
+                if user_data["role"] == UserRole.ENGINEER:
+                    engineer_user = existing
                 continue
             
             user = User(
@@ -104,13 +133,68 @@ async def create_test_users():
                 password_hash=AuthService.hash_password(user_data["password"])
             )
             session.add(user)
-            print(f"✅ {user_data['login']} ({user_data['role'].value}) создан")
+            await session.flush() # чтобы получить ID
+            print(f"✅ Пользователь {user_data['login']} ({user_data['role'].value}) создан")
+            
+            if user_data["role"] == UserRole.ENGINEER:
+                engineer_user = user
+        
+        # 4. Профиль инженера и слоты
+        if engineer_user:
+            # Ищем профиль инженера
+            result = await session.execute(select(Engineer).where(Engineer.user_id == engineer_user.id))
+            eng_profile = result.scalar_one_or_none()
+            
+            if not eng_profile:
+                eng_profile = Engineer(
+                    name=engineer_user.full_name,
+                    region_id=region.id,
+                    user_id=engineer_user.id
+                )
+                session.add(eng_profile)
+                await session.flush()
+                print(f"✅ Профиль инженера создан для {engineer_user.login}")
+            else:
+                print(f"⏭️  Профиль инженера уже есть")
+            
+            # Создаем слоты на 30 дней вперед
+            today = date.today()
+            slots_count = 0
+            for i in range(30):
+                day = today + timedelta(days=i)
+                # Пропускаем выходные (суббота, воскресенье)
+                if day.weekday() >= 5:
+                    continue
+                
+                # Проверяем, есть ли слот
+                slot_res = await session.execute(
+                    select(TimeSlot).where(
+                        TimeSlot.engineer_id == eng_profile.id,
+                        TimeSlot.date == day
+                    )
+                )
+                if not slot_res.scalar_one_or_none():
+                    slot = TimeSlot(
+                        engineer_id=eng_profile.id,
+                        date=day,
+                        start_hour=9,
+                        end_hour=18
+                    )
+                    session.add(slot)
+                    slots_count += 1
+            
+            if slots_count > 0:
+                print(f"✅ Создано {slots_count} рабочих слотов (9-18) для инженера")
+            else:
+                print(f"⏭️  Слоты уже заполнены")
         
         await session.commit()
     
     await engine.dispose()
     
-    print("\n📋 Тестовые пользователи:")
+    print("\n📋 Тестовые данные готовы:")
+    print("  Регион: Москва")
+    print(f"  ДЦ: {', '.join(dcn_names)}")
     for u in test_users:
         print(f"  {u['login']} / {u['password']} - {u['role'].value}")
 

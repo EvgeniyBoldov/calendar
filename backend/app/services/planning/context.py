@@ -151,8 +151,10 @@ class PlanningContext:
         total_available = sum(s.end_hour - s.start_hour for s in slots_res.scalars().all())
         
         # Считаем занятое время (БД)
+        # duration_hours - это property, поэтому загружаем чанки и считаем в Python
         used_db_res = await self.db.execute(
-            select(func.sum(WorkChunk.duration_hours))
+            select(WorkChunk)
+            .options(selectinload(WorkChunk.tasks))
             .where(
                 and_(
                     WorkChunk.assigned_engineer_id == engineer_id,
@@ -162,7 +164,7 @@ class PlanningContext:
                 )
             )
         )
-        used = used_db_res.scalar() or 0
+        used = sum(chunk.duration_hours for chunk in used_db_res.scalars().all())
         
         # Считаем занятое время (Виртуальное)
         for assignment in self._virtual_assignments:

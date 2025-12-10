@@ -37,6 +37,9 @@ docker-compose up -d
 # Применить миграции
 docker-compose exec backend alembic upgrade head
 
+# (опционально) создать тестовых пользователей всех ролей
+docker-compose exec backend python -m scripts.create_admin --all
+
 # Проверить статус
 docker-compose ps
 ```
@@ -219,6 +222,11 @@ calendar/
 | MINIO_ACCESS_KEY | MinIO access key | minio_admin |
 | MINIO_SECRET_KEY | MinIO secret key | minio_secret |
 | CORS_ORIGINS | Разрешённые origins | http://localhost:5173 |
+| EXCEL_IMPORT_SHEET | Название листа с планом работ | План |
+| EXCEL_IMPORT_DESCRIPTION_COL | Столбец с описанием задачи | B |
+| EXCEL_IMPORT_DC_COL | Столбец с названием ДЦ | C |
+| EXCEL_IMPORT_HOURS_COL | Столбец с часами | D |
+| EXCEL_IMPORT_START_ROW | Номер строки начала данных (1 — заголовок) | 2 |
 
 ### Переменные окружения (Frontend)
 

@@ -7,6 +7,7 @@
 from io import BytesIO
 from dataclasses import dataclass
 from openpyxl import load_workbook
+import xlrd
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -60,14 +61,22 @@ class ExcelImportService:
         
         try:
             wb = load_workbook(file_data, data_only=True)
-        except Exception as e:
-            return ImportResult(
-                success=False,
-                imported_count=0,
-                skipped_count=0,
-                errors=[f"Не удалось открыть Excel файл: {str(e)}"],
-                tasks=[]
-            )
+        except Exception as e_xlsx:
+            # Если не удалось открыть как xlsx, пробуем как xls
+            try:
+                # Для xlrd нужно сбросить указатель файла
+                file_data.seek(0)
+                file_content = file_data.read()
+                workbook = xlrd.open_workbook(file_contents=file_content)
+                return self._parse_xls_with_xlrd(workbook)
+            except Exception as e_xls:
+                return ImportResult(
+                    success=False,
+                    imported_count=0,
+                    skipped_count=0,
+                    errors=[f"Не удалось открыть файл: {str(e_xlsx)} / {str(e_xls)}"],
+                    tasks=[]
+                )
         
         # Ищем нужный лист
         sheet_name = self.settings.excel_import_sheet
@@ -140,6 +149,88 @@ class ExcelImportService:
             tasks=tasks
         )
     
+    def _parse_xls_with_xlrd(self, wb) -> ImportResult:
+        """Парсит .xls файл с помощью xlrd"""
+        errors = []
+        tasks = []
+        
+        # Ищем лист
+        sheet_name = self.settings.excel_import_sheet
+        if sheet_name in wb.sheet_names():
+            ws = wb.sheet_by_name(sheet_name)
+        else:
+            # Ищем похожий
+            found = False
+            for name in wb.sheet_names():
+                if sheet_name.lower() in name.lower():
+                    sheet_name = name
+                    found = True
+                    break
+            
+            if found:
+                ws = wb.sheet_by_name(sheet_name)
+            else:
+                ws = wb.sheet_by_index(0)
+                errors.append(f"Лист '{self.settings.excel_import_sheet}' не найден, используется '{ws.name}'")
+
+        # Индексы столбцов
+        desc_col = self._col_letter_to_index(self.settings.excel_import_description_col) - 1 # xlrd 0-based
+        dc_col = self._col_letter_to_index(self.settings.excel_import_dc_col) - 1
+        hours_col = self._col_letter_to_index(self.settings.excel_import_hours_col) - 1
+        start_row = self.settings.excel_import_start_row - 1 # xlrd 0-based
+
+        # Читаем строки
+        for row_idx in range(start_row, ws.nrows):
+            # Описание
+            try:
+                desc_val = ws.cell_value(row_idx, desc_col)
+                if not str(desc_val).strip():
+                    break
+                title = str(desc_val).strip()
+            except IndexError:
+                break
+
+            # ДЦ
+            dc_name = None
+            try:
+                dc_val = ws.cell_value(row_idx, dc_col)
+                if dc_val:
+                    dc_name = str(dc_val).strip()
+            except IndexError:
+                pass
+
+            # Часы
+            hours = 1
+            try:
+                hours_val = ws.cell_value(row_idx, hours_col)
+                if hours_val:
+                    try:
+                        hours = int(float(hours_val))
+                    except (ValueError, TypeError):
+                        errors.append(f"Строка {row_idx + 1}: не удалось прочитать часы, установлено 1")
+                if hours < 1: hours = 1
+                if hours > 24: hours = 24
+            except IndexError:
+                pass
+
+            tasks.append(ImportedTask(
+                title=title,
+                data_center_name=dc_name,
+                estimated_hours=hours
+            ))
+            
+            if len(tasks) > 1000:
+                errors.append("Достигнут лимит в 1000 строк")
+                break
+
+        return ImportResult(
+            success=True,
+            imported_count=len(tasks),
+            skipped_count=0,
+            errors=errors,
+            tasks=tasks
+        )
+
     async def get_dc_map(self) -> dict[str, str]:
         """Получить маппинг название ДЦ -> ID"""
         result = await self.db.execute(select(DataCenter))
