@@ -2,7 +2,7 @@ import React from 'react';
 import { 
   X, Plus, Trash2, Check, Circle, AlertCircle, XCircle, 
   Layers, ChevronDown, ChevronRight, Link as LinkIcon, 
-  Unlink, Wand2, Clock, MapPin, GripVertical, Save
+  Unlink, Wand2, Clock, MapPin, GripVertical, Save, FileSpreadsheet, Loader2
 } from 'lucide-react';
 import type { Work, WorkTask, WorkChunk, DataCenter, TaskStatus, ChunkLinkType } from '../../types';
 import { api } from '../../api/client';
@@ -126,6 +126,8 @@ export const WorkPlanModal: React.FC<WorkPlanModalProps> = ({
 
   const [newTaskTitle, setNewTaskTitle] = React.useState('');
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isImporting, setIsImporting] = React.useState(false);
+  const [importError, setImportError] = React.useState<string | null>(null);
   const [linkingChunkId, setLinkingChunkId] = React.useState<string | null>(null);
   const [hasChanges, setHasChanges] = React.useState(false);
   const [isReady, setIsReady] = React.useState(work.status !== 'draft');
@@ -249,6 +251,38 @@ export const WorkPlanModal: React.FC<WorkPlanModalProps> = ({
   const removeTaskFromChunk = (taskId: string) => {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, chunkId: undefined } : t));
     markChanged();
+  };
+
+  // === Import from Excel ===
+  const handleImportFromExcel = async () => {
+    setIsImporting(true);
+    setImportError(null);
+    try {
+      const result = await api.works.importPlan(work.id);
+      if (result.imported > 0) {
+        // Перезагружаем работу чтобы получить новые задачи
+        const updatedWork = await api.works.get(work.id);
+        if (updatedWork.tasks) {
+          setTasks(updatedWork.tasks.map((t: WorkTask) => ({
+            id: t.id,
+            title: t.title,
+            description: t.description || '',
+            dataCenterId: t.dataCenterId || '',
+            estimatedHours: t.estimatedHours,
+            quantity: t.quantity || 1,
+            status: t.status,
+            chunkId: t.chunkId,
+          })));
+        }
+        alert(`Импортировано ${result.imported} задач${result.skipped > 0 ? `, пропущено ${result.skipped} дубликатов` : ''}`);
+      } else {
+        setImportError(result.message || 'Нет задач для импорта');
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Ошибка импорта');
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   // === Auto-create chunks ===
@@ -697,6 +731,19 @@ export const WorkPlanModal: React.FC<WorkPlanModalProps> = ({
             </button>
           )}
 
+          {!linkingChunkId && (
+            <button 
+              type="button"
+              onClick={handleImportFromExcel}
+              disabled={isImporting}
+              className="btn-secondary h-8 text-xs flex items-center gap-1.5"
+              title="Импортировать задачи из Excel файла (тип 'План работ')"
+            >
+              {isImporting ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+              Импорт из Excel
+            </button>
+          )}
+
           <div className="flex-1" />
 
           <div className="flex gap-2">
@@ -719,6 +766,15 @@ export const WorkPlanModal: React.FC<WorkPlanModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Import Error */}
+        {importError && (
+          <div className="mx-4 mt-4 flex items-center gap-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+            <AlertCircle size={16} />
+            {importError}
+            <button onClick={() => setImportError(null)} className="ml-auto underline">Закрыть</button>
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">

@@ -193,13 +193,15 @@ export const api = {
     
     // Attachments
     getAttachments: (workId: string) => request<any>(`/works/${workId}/attachments`),
-    uploadAttachment: async (workId: string, file: File) => {
+    uploadAttachment: async (workId: string, file: File, attachmentType: string = 'other') => {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('attachment_type', attachmentType);
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
       const response = await fetch(`${API_URL}/api/works/${workId}/attachments`, {
         method: 'POST',
         body: formData,
+        credentials: 'include',
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
@@ -212,6 +214,9 @@ export const api = {
       return `${API_URL}/api/works/${workId}/attachments/${attachmentId}/download`;
     },
     deleteAttachment: (workId: string, attachmentId: string) => request<any>(`/works/${workId}/attachments/${attachmentId}`, { method: 'DELETE' }),
+    
+    // Import plan from Excel
+    importPlan: (workId: string) => request<any>(`/works/${workId}/import-plan`, { method: 'POST' }),
     
     // Tasks (план работ)
     getTasks: (workId: string) => request<any[]>(`/works/${workId}/tasks`),
@@ -243,6 +248,22 @@ export const api = {
     deleteSession: (id: string) => request<{ ok: boolean }>(`/planning/sessions/${id}`, { method: 'DELETE' }),
   },
   
+  // Users (Admin only)
+  users: {
+    list: (params?: { page?: number; pageSize?: number; role?: string; isActive?: boolean; search?: string }) =>
+      request<User[]>('/users', { params: params ? toSnakeCase(params) : undefined }),
+    get: (id: string) => request<User>(`/users/${id}`),
+    create: (data: { login: string; email: string; password: string; fullName?: string; role: string }) =>
+      request<User>('/users', { method: 'POST', body: JSON.stringify(toSnakeCase(data)) }),
+    update: (id: string, data: { email?: string; fullName?: string; role?: string; isActive?: boolean; password?: string }) =>
+      request<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(toSnakeCase(data)) }),
+    delete: (id: string) => request<{ ok: boolean }>(`/users/${id}`, { method: 'DELETE' }),
+    linkEngineer: (userId: string, engineerId: string) =>
+      request<{ ok: boolean }>(`/users/${userId}/link-engineer`, { method: 'POST', params: { engineer_id: engineerId } }),
+    unlinkEngineer: (userId: string) =>
+      request<{ ok: boolean }>(`/users/${userId}/unlink-engineer`, { method: 'POST' }),
+  },
+
   // Distance Matrix
   distances: {
     list: () => request<any[]>('/distances'),

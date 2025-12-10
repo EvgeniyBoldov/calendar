@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     cookie_samesite: str = "lax"  # "strict" или "lax"
     cookie_domain: str | None = None  # None = текущий домен
     
+    # Excel Import Settings (для импорта плана работ)
+    excel_import_sheet: str = "План"  # Название листа с планом
+    excel_import_description_col: str = "B"  # Столбец с описанием задачи
+    excel_import_dc_col: str = "C"  # Столбец с названием ДЦ
+    excel_import_hours_col: str = "D"  # Столбец с часами
+    excel_import_start_row: int = 2  # Строка начала данных (1 = заголовок)
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

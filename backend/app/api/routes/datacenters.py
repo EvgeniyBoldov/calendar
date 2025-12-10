@@ -6,12 +6,17 @@ from ...models import DataCenter
 from ...schemas import DataCenterCreate, DataCenterUpdate, DataCenterResponse
 from ...services import sync_service
 from ...schemas.sync import SyncEventType
+from ..deps import CurrentUser, PlannerUser
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[DataCenterResponse])
-async def get_datacenters(region_id: str | None = None, db: AsyncSession = Depends(get_db)):
+async def get_datacenters(
+    current_user: CurrentUser,
+    region_id: str | None = None,
+    db: AsyncSession = Depends(get_db)
+):
     query = select(DataCenter)
     if region_id:
         query = query.where(DataCenter.region_id == region_id)
@@ -20,7 +25,11 @@ async def get_datacenters(region_id: str | None = None, db: AsyncSession = Depen
 
 
 @router.get("/{dc_id}", response_model=DataCenterResponse)
-async def get_datacenter(dc_id: str, db: AsyncSession = Depends(get_db)):
+async def get_datacenter(
+    dc_id: str,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(DataCenter).where(DataCenter.id == dc_id))
     dc = result.scalar_one_or_none()
     if not dc:
@@ -29,7 +38,11 @@ async def get_datacenter(dc_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=DataCenterResponse)
-async def create_datacenter(data: DataCenterCreate, db: AsyncSession = Depends(get_db)):
+async def create_datacenter(
+    data: DataCenterCreate,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     dc = DataCenter(**data.model_dump())
     db.add(dc)
     await db.flush()
@@ -45,7 +58,12 @@ async def create_datacenter(data: DataCenterCreate, db: AsyncSession = Depends(g
 
 
 @router.patch("/{dc_id}", response_model=DataCenterResponse)
-async def update_datacenter(dc_id: str, data: DataCenterUpdate, db: AsyncSession = Depends(get_db)):
+async def update_datacenter(
+    dc_id: str,
+    data: DataCenterUpdate,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(DataCenter).where(DataCenter.id == dc_id))
     dc = result.scalar_one_or_none()
     if not dc:
@@ -67,7 +85,11 @@ async def update_datacenter(dc_id: str, data: DataCenterUpdate, db: AsyncSession
 
 
 @router.delete("/{dc_id}")
-async def delete_datacenter(dc_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_datacenter(
+    dc_id: str,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(DataCenter).where(DataCenter.id == dc_id))
     dc = result.scalar_one_or_none()
     if not dc:

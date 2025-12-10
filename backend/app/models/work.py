@@ -94,6 +94,24 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class AttachmentType(str, Enum):
+    """
+    Тип вложения к работе:
+    - work_plan: План работ (Excel файл для импорта задач)
+    - report: Отчёт
+    - calculation: Расчёт
+    - scheme: Схема
+    - photo: Фото
+    - other: Прочее
+    """
+    WORK_PLAN = "work_plan"
+    REPORT = "report"
+    CALCULATION = "calculation"
+    SCHEME = "scheme"
+    PHOTO = "photo"
+    OTHER = "other"
+
+
 # ChunkLink model is defined below (not as association table)
 
 
@@ -141,6 +159,14 @@ class Work(Base, TimestampMixin):
     # Relationships
     data_center = relationship("DataCenter", back_populates="works")
     author = relationship("User", back_populates="created_works")
+
+    @property
+    def author_name(self):
+        """Полное имя автора для отображения во фронтенде."""
+        if self.author is None:
+            return None
+        # full_name приоритетнее, затем логин, затем email
+        return self.author.full_name or self.author.login or self.author.email
     tasks = relationship("WorkTask", back_populates="work", cascade="all, delete-orphan", order_by="WorkTask.order")
     chunks = relationship("WorkChunk", back_populates="work", cascade="all, delete-orphan", order_by="WorkChunk.order")
     attachments = relationship("WorkAttachment", back_populates="work", cascade="all, delete-orphan")
@@ -189,6 +215,11 @@ class WorkAttachment(Base, TimestampMixin):
     
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     work_id: Mapped[str] = mapped_column(String(36), ForeignKey("works.id"), nullable=False)
+    
+    # Тип вложения
+    attachment_type: Mapped[AttachmentType] = mapped_column(
+        SQLEnum(AttachmentType), default=AttachmentType.OTHER, nullable=False
+    )
     
     filename: Mapped[str] = mapped_column(String(255), nullable=False)  # Original filename
     minio_key: Mapped[str] = mapped_column(String(512), nullable=False)  # Path in MinIO bucket

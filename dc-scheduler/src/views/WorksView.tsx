@@ -1,9 +1,10 @@
 import React from 'react';
 import { useWorkStore } from '../stores/workStore';
 import { useDataCenterStore } from '../stores/dataCenterStore';
-import { Plus, Search, Edit2, Trash2, Calendar, ChevronDown, ChevronUp, FileText, ListTodo } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Calendar, ChevronDown, ChevronUp, FileText, ListTodo, Paperclip } from 'lucide-react';
 import { WorkFormModal } from '../components/works/WorkFormModal';
 import { WorkPlanModal } from '../components/works/WorkPlanModal';
+import { AttachmentsModal } from '../components/works/AttachmentsModal';
 import type { Work, Priority, WorkTask } from '../types';
 import clsx from 'clsx';
 
@@ -76,6 +77,7 @@ export const WorksView: React.FC = () => {
   const [showWorkForm, setShowWorkForm] = React.useState(false);
   const [editingWork, setEditingWork] = React.useState<Work | null>(null);
   const [planningWork, setPlanningWork] = React.useState<Work | null>(null);
+  const [attachmentsWork, setAttachmentsWork] = React.useState<Work | null>(null);
 
   // Filter and sort works
   const filteredWorks = React.useMemo(() => {
@@ -287,7 +289,7 @@ export const WorksView: React.FC = () => {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-sm text-muted-foreground">
-                    {work.authorId || '—'}
+                    {work.authorName || work.authorId || '—'}
                   </td>
                   <td className="px-4 py-3">
                     <span className="text-sm">{WORK_TYPE_LABELS[work.workType] || work.workType}</span>
@@ -324,6 +326,13 @@ export const WorksView: React.FC = () => {
                           <ListTodo size={16} />
                         </button>
                       )}
+                      <button
+                        onClick={() => setAttachmentsWork(work)}
+                        className="p-2 rounded hover:bg-primary/10 transition-colors text-muted-foreground hover:text-primary"
+                        title="Файлы"
+                      >
+                        <Paperclip size={16} />
+                      </button>
                       <button
                         onClick={() => handleDelete(work.id)}
                         className="p-2 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
@@ -370,6 +379,14 @@ export const WorksView: React.FC = () => {
           dataCenters={dataCenters}
           onUpdated={handlePlanUpdated}
           onClose={() => setPlanningWork(null)}
+        />
+      )}
+
+      {/* Attachments Modal */}
+      {attachmentsWork && (
+        <AttachmentsModal
+          work={attachmentsWork}
+          onClose={() => setAttachmentsWork(null)}
         />
       )}
     </div>

@@ -53,6 +53,16 @@ class PlanningStrategy(str, Enum):
     SLA = "sla"            # Приоритет критичных задач
 
 
+class AttachmentType(str, Enum):
+    """Тип вложения к работе"""
+    WORK_PLAN = "work_plan"
+    REPORT = "report"
+    CALCULATION = "calculation"
+    SCHEME = "scheme"
+    PHOTO = "photo"
+    OTHER = "other"
+
+
 class ChunkConstraints(BaseModel):
     """
     Ограничения для чанка, используемые фронтендом для валидации drag-and-drop.
@@ -207,6 +217,7 @@ class WorkChunkResponse(WorkChunkBase):
 class WorkAttachmentResponse(BaseModel):
     id: str
     work_id: str
+    attachment_type: AttachmentType
     filename: str
     minio_key: str
     content_type: str | None = None
@@ -271,6 +282,7 @@ class WorkResponse(WorkBase):
     id: str
     status: WorkStatus
     author_id: str | None = None
+    author_name: str | None = None
     version: int
     
     # Для general

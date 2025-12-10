@@ -6,20 +6,21 @@ API эндпоинты для работ (Work).
 - TRP: только свои работы (где author_id = user.id)
 - ENGINEER: работы, где есть назначенные на него чанки
 """
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
+from urllib.parse import quote
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, exists
 from sqlalchemy.orm import selectinload
 from ...database import get_db
-from ...models import Work, WorkChunk, WorkAttachment, WorkTask, ChunkLink, User, UserRole, Engineer
+from ...models import Work, WorkChunk, WorkAttachment, WorkTask, ChunkLink, User, UserRole, Engineer, AttachmentType as DBAttachmentType
 from ...models.work import WorkStatus as DBWorkStatus, ChunkStatus as DBChunkStatus, Priority as DBPriority, TaskStatus as DBTaskStatus, WorkType as DBWorkType
 from ...schemas import (
     WorkCreate, WorkUpdate, WorkResponse, WorkListResponse,
     WorkChunkCreate, WorkChunkUpdate, WorkChunkResponse,
     WorkTaskCreate, WorkTaskUpdate, WorkTaskResponse,
-    WorkStatus, ChunkStatus, TaskStatus, Priority
+    WorkStatus, ChunkStatus, TaskStatus, Priority, AttachmentType
 )
 from ...schemas.work import WorkAttachmentResponse
 from ...services import sync_service
@@ -167,7 +168,8 @@ async def get_works(
         selectinload(Work.tasks),
         selectinload(Work.chunks).selectinload(WorkChunk.tasks),
         selectinload(Work.chunks).selectinload(WorkChunk.outgoing_links),
-        selectinload(Work.attachments)
+        selectinload(Work.attachments),
+        selectinload(Work.author),
     )
     count_query = select(func.count(Work.id))
     
@@ -250,7 +252,8 @@ async def get_work(
             selectinload(Work.tasks),
             selectinload(Work.chunks).selectinload(WorkChunk.tasks),
             selectinload(Work.chunks).selectinload(WorkChunk.outgoing_links),
-            selectinload(Work.attachments)
+            selectinload(Work.attachments),
+            selectinload(Work.author),
         )
         .where(Work.id == work_id)
     )
@@ -338,7 +341,8 @@ async def create_work(
         .options(
             selectinload(Work.chunks).selectinload(WorkChunk.tasks),
             selectinload(Work.attachments),
-            selectinload(Work.tasks)
+            selectinload(Work.tasks),
+            selectinload(Work.author),
         )
         .where(Work.id == work.id)
     )
@@ -397,7 +401,8 @@ async def update_work(
             selectinload(Work.tasks),
             selectinload(Work.chunks).selectinload(WorkChunk.tasks),
             selectinload(Work.chunks).selectinload(WorkChunk.outgoing_links),
-            selectinload(Work.attachments)
+            selectinload(Work.attachments),
+            selectinload(Work.author),
         )
         .where(Work.id == work.id)
     )
@@ -765,7 +770,10 @@ async def auto_assign_work(
     # Получаем обновлённую работу с чанками
     work_result = await db.execute(
         select(Work)
-        .options(selectinload(Work.chunks).selectinload(WorkChunk.tasks))
+        .options(
+            selectinload(Work.chunks).selectinload(WorkChunk.tasks),
+            selectinload(Work.author),
+        )
         .where(Work.id == work_id)
     )
     updated_work = work_result.scalar_one()
@@ -812,12 +820,41 @@ async def get_attachments(work_id: str, db: AsyncSession = Depends(get_db)):
 async def upload_attachment(
     work_id: str,
     file: UploadFile = File(...),
+    attachment_type: str = Form("other"),
+    current_user: CurrentUser = None,
     db: AsyncSession = Depends(get_db)
 ):
-    """Upload a file attachment to a work"""
+    """
+    Upload a file attachment to a work.
+    
+    attachment_type: work_plan, report, calculation, scheme, photo, other
+    
+    Для work_plan: разрешён только один файл этого типа на работу.
+    При загрузке нового work_plan старый удаляется.
+    """
     result = await db.execute(select(Work).where(Work.id == work_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Work not found")
+    
+    # Validate attachment type
+    try:
+        att_type = DBAttachmentType(attachment_type)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid attachment type: {attachment_type}")
+    
+    # Для work_plan: удаляем старый файл если есть
+    if att_type == DBAttachmentType.WORK_PLAN:
+        existing = await db.execute(
+            select(WorkAttachment).where(
+                WorkAttachment.work_id == work_id,
+                WorkAttachment.attachment_type == DBAttachmentType.WORK_PLAN
+            )
+        )
+        old_attachment = existing.scalar_one_or_none()
+        if old_attachment:
+            minio_service.delete_file(old_attachment.minio_key)
+            await db.delete(old_attachment)
+            await db.flush()
     
     # Upload to MinIO
     minio_key, file_size = minio_service.upload_file(
@@ -830,10 +867,12 @@ async def upload_attachment(
     # Create DB record
     attachment = WorkAttachment(
         work_id=work_id,
+        attachment_type=att_type,
         filename=file.filename or "unknown",
         minio_key=minio_key,
         content_type=file.content_type,
-        size=file_size
+        size=file_size,
+        uploaded_by_id=current_user.id if current_user else None
     )
     db.add(attachment)
     await db.flush()
@@ -862,11 +901,14 @@ async def download_attachment(
     # Get file from MinIO
     file_data = minio_service.download_file(attachment.minio_key)
     
+    # Encode filename for Content-Disposition header (RFC 5987)
+    filename_encoded = quote(attachment.filename)
+    
     return StreamingResponse(
         file_data,
         media_type=attachment.content_type or "application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{attachment.filename}"'
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename_encoded}"
         }
     )
 
@@ -895,6 +937,104 @@ async def delete_attachment(
     await db.delete(attachment)
     
     return {"ok": True}
+
+
+# Import work plan from Excel
+@router.post("/{work_id}/import-plan")
+async def import_work_plan(
+    work_id: str,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Импортировать план работ из загруженного Excel файла (тип work_plan).
+    
+    Читает файл work_plan, парсит его согласно настройкам в конфиге,
+    и добавляет задачи в работу (пропуская дубликаты).
+    """
+    from ...services.excel_import_service import ExcelImportService
+    
+    # Проверяем что работа существует
+    result = await db.execute(select(Work).where(Work.id == work_id))
+    work = result.scalar_one_or_none()
+    if not work:
+        raise HTTPException(status_code=404, detail="Work not found")
+    
+    # Проверяем доступ
+    await check_work_access(work, current_user, db, require_edit=True)
+    
+    # Ищем файл work_plan
+    attachment_result = await db.execute(
+        select(WorkAttachment).where(
+            WorkAttachment.work_id == work_id,
+            WorkAttachment.attachment_type == DBAttachmentType.WORK_PLAN
+        )
+    )
+    attachment = attachment_result.scalar_one_or_none()
+    if not attachment:
+        raise HTTPException(
+            status_code=404, 
+            detail="Файл плана работ не найден. Сначала загрузите Excel файл с типом 'План работ'."
+        )
+    
+    # Скачиваем файл из MinIO
+    try:
+        file_data = minio_service.download_file(attachment.minio_key)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Не удалось скачать файл: {str(e)}")
+    
+    # Парсим Excel
+    import_service = ExcelImportService(db)
+    parse_result = import_service.parse_excel(file_data)
+    
+    if not parse_result.success:
+        raise HTTPException(status_code=400, detail=parse_result.errors[0] if parse_result.errors else "Ошибка парсинга")
+    
+    if not parse_result.tasks:
+        return {
+            "ok": True,
+            "imported": 0,
+            "skipped": 0,
+            "message": "Файл не содержит задач для импорта",
+            "errors": parse_result.errors
+        }
+    
+    # Импортируем задачи
+    imported, skipped, import_errors = await import_service.import_tasks_to_work(
+        work_id=work_id,
+        tasks=parse_result.tasks,
+        skip_duplicates=True
+    )
+    
+    all_errors = parse_result.errors + import_errors
+    
+    # Обновляем работу через sync
+    result = await db.execute(
+        select(Work)
+        .options(
+            selectinload(Work.tasks),
+            selectinload(Work.chunks).selectinload(WorkChunk.tasks),
+            selectinload(Work.attachments),
+            selectinload(Work.author),
+        )
+        .where(Work.id == work_id)
+    )
+    updated_work = result.scalar_one()
+    
+    await sync_service.broadcast(
+        SyncEventType.WORK_UPDATED,
+        WorkResponse.model_validate(updated_work).model_dump(mode="json"),
+        entity_id=work_id
+    )
+    
+    return {
+        "ok": True,
+        "imported": imported,
+        "skipped": skipped,
+        "total_in_file": len(parse_result.tasks),
+        "message": f"Импортировано {imported} задач, пропущено {skipped} дубликатов",
+        "errors": all_errors if all_errors else None
+    }
 
 
 # Bulk operations

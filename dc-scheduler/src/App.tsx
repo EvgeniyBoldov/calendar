@@ -8,6 +8,7 @@ import { WorksView } from './views/WorksView';
 import { EngineerDashboard } from './views/EngineerDashboard';
 import { SettingsView } from './views/SettingsView';
 import { LoginView } from './views/LoginView';
+import { AdminUsersView } from './views/AdminUsersView';
 import { useThemeStore, applyTheme } from './stores/themeStore';
 import { useAuthStore } from './stores/authStore';
 import { api } from './api/client';
@@ -94,6 +95,7 @@ function AppContent() {
         <Route path="works" element={<WorksView />} />
         <Route path="my-tasks" element={<EngineerDashboard />} />
         <Route path="settings" element={<SettingsView />} />
+        <Route path="admin/users" element={<AdminUsersView />} />
       </Route>
       
       {/* Fallback */}

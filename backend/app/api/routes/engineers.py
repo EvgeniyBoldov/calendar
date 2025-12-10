@@ -7,12 +7,17 @@ from ...models import Engineer, TimeSlot
 from ...schemas import EngineerCreate, EngineerUpdate, EngineerResponse, TimeSlotCreate, TimeSlotResponse
 from ...services import sync_service
 from ...schemas.sync import SyncEventType
+from ..deps import CurrentUser, PlannerUser
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[EngineerResponse])
-async def get_engineers(region_id: str | None = None, db: AsyncSession = Depends(get_db)):
+async def get_engineers(
+    current_user: CurrentUser,
+    region_id: str | None = None,
+    db: AsyncSession = Depends(get_db)
+):
     query = select(Engineer).options(selectinload(Engineer.time_slots))
     if region_id:
         query = query.where(Engineer.region_id == region_id)
@@ -21,7 +26,11 @@ async def get_engineers(region_id: str | None = None, db: AsyncSession = Depends
 
 
 @router.get("/{engineer_id}", response_model=EngineerResponse)
-async def get_engineer(engineer_id: str, db: AsyncSession = Depends(get_db)):
+async def get_engineer(
+    engineer_id: str,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(
         select(Engineer)
         .options(selectinload(Engineer.time_slots))
@@ -34,7 +43,11 @@ async def get_engineer(engineer_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=EngineerResponse)
-async def create_engineer(data: EngineerCreate, db: AsyncSession = Depends(get_db)):
+async def create_engineer(
+    data: EngineerCreate,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     engineer = Engineer(**data.model_dump())
     db.add(engineer)
     await db.flush()
@@ -58,7 +71,12 @@ async def create_engineer(data: EngineerCreate, db: AsyncSession = Depends(get_d
 
 
 @router.patch("/{engineer_id}", response_model=EngineerResponse)
-async def update_engineer(engineer_id: str, data: EngineerUpdate, db: AsyncSession = Depends(get_db)):
+async def update_engineer(
+    engineer_id: str,
+    data: EngineerUpdate,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(
         select(Engineer)
         .options(selectinload(Engineer.time_slots))
@@ -84,7 +102,11 @@ async def update_engineer(engineer_id: str, data: EngineerUpdate, db: AsyncSessi
 
 
 @router.delete("/{engineer_id}")
-async def delete_engineer(engineer_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_engineer(
+    engineer_id: str,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Engineer).where(Engineer.id == engineer_id))
     engineer = result.scalar_one_or_none()
     if not engineer:
@@ -103,7 +125,12 @@ async def delete_engineer(engineer_id: str, db: AsyncSession = Depends(get_db)):
 
 # Time Slots
 @router.post("/{engineer_id}/slots", response_model=TimeSlotResponse)
-async def add_time_slot(engineer_id: str, data: TimeSlotCreate, db: AsyncSession = Depends(get_db)):
+async def add_time_slot(
+    engineer_id: str,
+    data: TimeSlotCreate,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Engineer).where(Engineer.id == engineer_id))
     engineer = result.scalar_one_or_none()
     if not engineer:
@@ -124,7 +151,12 @@ async def add_time_slot(engineer_id: str, data: TimeSlotCreate, db: AsyncSession
 
 
 @router.delete("/{engineer_id}/slots/{slot_id}")
-async def remove_time_slot(engineer_id: str, slot_id: str, db: AsyncSession = Depends(get_db)):
+async def remove_time_slot(
+    engineer_id: str,
+    slot_id: str,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(
         select(TimeSlot).where(TimeSlot.id == slot_id, TimeSlot.engineer_id == engineer_id)
     )

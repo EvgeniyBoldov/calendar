@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from ...database import get_db
 from ...config import get_settings
 from ...services.auth_service import AuthService
+from ...services.audit_service import AuditService
+from ...models.audit_log import AuditAction
 from ...schemas.user import UserResponse, UserRole
 
 settings = get_settings()
@@ -93,9 +95,21 @@ async def login(
     """
     auth_service = AuthService(db)
     
+    # Получаем информацию о клиенте для аудита
+    user_agent = request.headers.get("user-agent")
+    client_ip = request.client.host if request.client else None
+    
     # Аутентификация
     user = await auth_service.authenticate_user(data.login, data.password)
     if not user:
+        # Аудит неудачной попытки входа
+        await AuditService.log_login_failed(
+            db=db,
+            login=data.login,
+            ip_address=client_ip,
+            user_agent=user_agent,
+        )
+        await db.commit()
         raise HTTPException(
             status_code=401,
             detail="Invalid login or password"
@@ -104,14 +118,18 @@ async def login(
     # Создаем токены
     access_token = auth_service.create_access_token(user)
     
-    # Получаем информацию о клиенте для аудита
-    user_agent = request.headers.get("user-agent")
-    client_ip = request.client.host if request.client else None
-    
     refresh_token, _ = await auth_service.create_refresh_token(
         user,
         user_agent=user_agent,
         ip_address=client_ip
+    )
+    
+    # Аудит успешного входа
+    await AuditService.log_login(
+        db=db,
+        user=user,
+        ip_address=client_ip,
+        user_agent=user_agent,
     )
     
     await db.commit()

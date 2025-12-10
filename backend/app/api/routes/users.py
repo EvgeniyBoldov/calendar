@@ -7,10 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
+from fastapi import Request
 from ...database import get_db
 from ...models import User, UserRole, Engineer
 from ...schemas.user import UserCreate, UserUpdate, UserResponse, UserRole as SchemaUserRole
 from ...services.auth_service import AuthService
+from ...services.audit_service import AuditService
 from ..deps import AdminUser, CurrentUser
 
 router = APIRouter()
@@ -85,6 +87,7 @@ async def get_user(
 async def create_user(
     data: UserCreate,
     current_user: AdminUser,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -119,6 +122,14 @@ async def create_user(
     await db.flush()
     await db.refresh(user)
     
+    # Аудит
+    await AuditService.log_user_created(
+        db=db,
+        admin=current_user,
+        new_user=user,
+        ip_address=request.client.host if request.client else None,
+    )
+    
     return user
 
 
@@ -127,6 +138,7 @@ async def update_user(
     user_id: str,
     data: UserUpdate,
     current_user: AdminUser,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -154,6 +166,10 @@ async def update_user(
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="User with this email already exists")
     
+    # Сохраняем старые значения для аудита
+    old_role = user.role.value
+    old_is_active = user.is_active
+    
     # Обновляем поля
     if data.email is not None:
         user.email = data.email
@@ -161,6 +177,7 @@ async def update_user(
         user.full_name = data.full_name
     if data.role is not None:
         user.role = UserRole(data.role.value)
+    
     if data.is_active is not None:
         user.is_active = data.is_active
     if data.password:
@@ -169,6 +186,27 @@ async def update_user(
     await db.flush()
     await db.refresh(user)
     
+    # Аудит
+    ip_address = request.client.host if request.client else None
+    
+    # Смена роли
+    if data.role and data.role.value != old_role:
+        await AuditService.log_role_changed(
+            db=db,
+            admin=current_user,
+            target_user=user,
+            old_role=old_role,
+            new_role=data.role.value,
+            ip_address=ip_address,
+        )
+    
+    # Блокировка/разблокировка
+    if data.is_active is not None and data.is_active != old_is_active:
+        if data.is_active:
+            await AuditService.log_user_unblocked(db, current_user, user, ip_address)
+        else:
+            await AuditService.log_user_blocked(db, current_user, user, ip_address)
+    
     return user
 
 
@@ -176,6 +214,7 @@ async def update_user(
 async def delete_user(
     user_id: str,
     current_user: AdminUser,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -199,7 +238,19 @@ async def delete_user(
         # Отвязываем инженера от пользователя
         engineer.user_id = None
     
+    deleted_login = user.login
+    deleted_id = user.id
+    
     await db.delete(user)
+    
+    # Аудит
+    await AuditService.log_user_deleted(
+        db=db,
+        admin=current_user,
+        deleted_user_id=deleted_id,
+        deleted_user_login=deleted_login,
+        ip_address=request.client.host if request.client else None,
+    )
     
     return {"ok": True}
 

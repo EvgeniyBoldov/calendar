@@ -98,9 +98,12 @@ export interface ChunkConstraints {
   dataCenterId?: string;           // ID дата-центра
 }
 
+export type AttachmentType = 'work_plan' | 'report' | 'calculation' | 'scheme' | 'photo' | 'other';
+
 export interface WorkAttachment {
   id: string;
   workId: string;
+  attachmentType: AttachmentType;
   filename: string;
   minioKey: string;
   contentType?: string;
@@ -118,6 +121,7 @@ export interface Work {
   status: WorkStatus;
   version: number;
   authorId?: string;
+  authorName?: string;
   
   // === Для general (работа) ===
   dueDate?: string; // Дедлайн (опционально)

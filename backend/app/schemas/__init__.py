@@ -5,7 +5,7 @@ from .work import (
     WorkCreate, WorkUpdate, WorkResponse, WorkListResponse,
     WorkChunkCreate, WorkChunkUpdate, WorkChunkResponse,
     WorkTaskCreate, WorkTaskUpdate, WorkTaskResponse,
-    WorkStatus, ChunkStatus, TaskStatus, Priority, WorkType
+    WorkStatus, ChunkStatus, TaskStatus, Priority, WorkType, AttachmentType
 )
 from .user import UserCreate, UserUpdate, UserResponse, UserBrief, UserRole
 from .sync import SyncEvent, SyncEventType
@@ -21,7 +21,7 @@ __all__ = [
     "WorkCreate", "WorkUpdate", "WorkResponse", "WorkListResponse",
     "WorkChunkCreate", "WorkChunkUpdate", "WorkChunkResponse",
     "WorkTaskCreate", "WorkTaskUpdate", "WorkTaskResponse",
-    "WorkStatus", "ChunkStatus", "TaskStatus", "Priority", "WorkType",
+    "WorkStatus", "ChunkStatus", "TaskStatus", "Priority", "WorkType", "AttachmentType",
     "UserCreate", "UserUpdate", "UserResponse", "UserBrief", "UserRole",
     "SyncEvent", "SyncEventType",
     "DistanceMatrixCreate", "DistanceMatrixUpdate", "DistanceMatrixResponse",

@@ -1,10 +1,18 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Map, Users, Calendar, Hammer, Menu, X, ClipboardList, Settings, LogOut } from 'lucide-react';
+import { Map, Users, Calendar, Hammer, Menu, X, ClipboardList, Settings, LogOut, Shield } from 'lucide-react';
 import { ThemeToggle } from './ui/ThemeToggle';
+import type { UserRole } from '../stores/authStore';
 import { useAuthStore, roleLabels, roleColors } from '../stores/authStore';
 import { api } from '../api/client';
 import clsx from 'clsx';
+
+interface NavItem {
+  path: string;
+  label: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  roles?: UserRole[];  // Если не указано - доступно всем
+}
 
 export const Layout: React.FC = () => {
   const location = useLocation();
@@ -22,14 +30,25 @@ export const Layout: React.FC = () => {
     navigate('/login');
   };
 
-  const navItems = [
+  // Все пункты меню с ограничениями по ролям
+  const allNavItems: NavItem[] = [
     { path: '/calendar', label: 'Календарь', icon: Calendar },
     { path: '/works', label: 'Работы', icon: Hammer },
-    { path: '/my-tasks', label: 'Мои задачи', icon: ClipboardList },
-    { path: '/engineers', label: 'Инженеры', icon: Users },
-    { path: '/regions', label: 'Регионы и ДЦ', icon: Map },
+    { path: '/my-tasks', label: 'Мои задачи', icon: ClipboardList, roles: ['ENGINEER'] },
+    { path: '/engineers', label: 'Инженеры', icon: Users, roles: ['ADMIN', 'EXPERT'] },
+    { path: '/regions', label: 'Регионы и ДЦ', icon: Map, roles: ['ADMIN', 'EXPERT'] },
+    { path: '/admin/users', label: 'Пользователи', icon: Shield, roles: ['ADMIN'] },
     { path: '/settings', label: 'Настройки', icon: Settings },
   ];
+
+  // Фильтруем пункты меню по роли пользователя
+  const navItems = useMemo(() => {
+    if (!user) return [];
+    return allNavItems.filter(item => {
+      if (!item.roles) return true;  // Доступно всем
+      return item.roles.includes(user.role);
+    });
+  }, [user]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -39,9 +58,10 @@ export const Layout: React.FC = () => {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="btn-ghost btn-icon rounded-lg"
+              className="btn-ghost rounded-lg h-12 w-12 flex items-center justify-center"
+              title={sidebarOpen ? 'Скрыть меню' : 'Показать меню'}
             >
-              {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+              {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
             </button>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
@@ -72,10 +92,10 @@ export const Layout: React.FC = () => {
                 </div>
                 <button
                   onClick={handleLogout}
-                  className="btn-ghost btn-icon rounded-lg text-muted-foreground hover:text-foreground"
+                  className="btn-ghost rounded-lg h-12 w-12 flex items-center justify-center text-muted-foreground hover:text-foreground"
                   title="Выйти"
                 >
-                  <LogOut size={18} />
+                  <LogOut className="w-6 h-6" />
                 </button>
               </div>
             )}

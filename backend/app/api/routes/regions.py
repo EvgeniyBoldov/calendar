@@ -6,18 +6,26 @@ from ...models import Region
 from ...schemas import RegionCreate, RegionUpdate, RegionResponse
 from ...services import sync_service
 from ...schemas.sync import SyncEventType
+from ..deps import CurrentUser, PlannerUser
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[RegionResponse])
-async def get_regions(db: AsyncSession = Depends(get_db)):
+async def get_regions(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Region))
     return result.scalars().all()
 
 
 @router.get("/{region_id}", response_model=RegionResponse)
-async def get_region(region_id: str, db: AsyncSession = Depends(get_db)):
+async def get_region(
+    region_id: str,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Region).where(Region.id == region_id))
     region = result.scalar_one_or_none()
     if not region:
@@ -26,7 +34,11 @@ async def get_region(region_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=RegionResponse)
-async def create_region(data: RegionCreate, db: AsyncSession = Depends(get_db)):
+async def create_region(
+    data: RegionCreate,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     region = Region(**data.model_dump())
     db.add(region)
     await db.flush()
@@ -43,7 +55,12 @@ async def create_region(data: RegionCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/{region_id}", response_model=RegionResponse)
-async def update_region(region_id: str, data: RegionUpdate, db: AsyncSession = Depends(get_db)):
+async def update_region(
+    region_id: str,
+    data: RegionUpdate,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Region).where(Region.id == region_id))
     region = result.scalar_one_or_none()
     if not region:
@@ -66,7 +83,11 @@ async def update_region(region_id: str, data: RegionUpdate, db: AsyncSession = D
 
 
 @router.delete("/{region_id}")
-async def delete_region(region_id: str, db: AsyncSession = Depends(get_db)):
+async def delete_region(
+    region_id: str,
+    current_user: PlannerUser,  # ADMIN or EXPERT only
+    db: AsyncSession = Depends(get_db)
+):
     result = await db.execute(select(Region).where(Region.id == region_id))
     region = result.scalar_one_or_none()
     if not region:
